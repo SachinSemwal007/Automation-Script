@@ -169,6 +169,89 @@
         return false;
     }
 
+    function showAvailableDatesTable(availableDates) {
+    // Create a popup container
+    const popup = document.createElement('div');
+    popup.style.position = 'fixed';
+    popup.style.top = '50%';
+    popup.style.left = '50%';
+    popup.style.transform = 'translate(-50%, -50%)';
+    popup.style.backgroundColor = '#fff';
+    popup.style.padding = '20px';
+    popup.style.border = '1px solid #ccc';
+    popup.style.borderRadius = '8px';
+    popup.style.boxShadow = '0 4px 8px rgba(0, 0, 0, 0.2)';
+    popup.style.zIndex = '10000';
+    popup.style.fontFamily = 'Arial, sans-serif';
+
+    // Add a title
+    const title = document.createElement('h3');
+    title.textContent = 'Available Test Dates';
+    title.style.marginTop = '0';
+    popup.appendChild(title);
+
+    // Create a table
+    const table = document.createElement('table');
+    table.style.width = '100%';
+    table.style.borderCollapse = 'collapse';
+
+    // Add table headers
+    const headerRow = document.createElement('tr');
+    const headerDay = document.createElement('th');
+    headerDay.textContent = 'Day';
+    headerDay.style.padding = '8px';
+    headerDay.style.borderBottom = '2px solid #007bff';
+    headerRow.appendChild(headerDay);
+
+    const headerDate = document.createElement('th');
+    headerDate.textContent = 'Date';
+    headerDate.style.padding = '8px';
+    headerDate.style.borderBottom = '2px solid #007bff';
+    headerRow.appendChild(headerDate);
+
+    table.appendChild(headerRow);
+
+    // Add table rows for each available date
+    availableDates.forEach(date => {
+        const row = document.createElement('tr');
+        const cellDay = document.createElement('td');
+        cellDay.textContent = date.split(' ')[0]; // Extract day (e.g., "Wed")
+        cellDay.style.padding = '8px';
+        cellDay.style.borderBottom = '1px solid #eee';
+        row.appendChild(cellDay);
+
+        const cellDate = document.createElement('td');
+        cellDate.textContent = date.split(' ')[1]; // Extract date (e.g., "30")
+        cellDate.style.padding = '8px';
+        cellDate.style.borderBottom = '1px solid #eee';
+        row.appendChild(cellDate);
+
+        table.appendChild(row);
+    });
+
+    popup.appendChild(table);
+
+    // Add a close button
+    const closeButton = document.createElement('button');
+    closeButton.textContent = 'Close';
+    closeButton.style.marginTop = '10px';
+    closeButton.style.padding = '8px 16px';
+    closeButton.style.backgroundColor = '#007bff';
+    closeButton.style.color = '#fff';
+    closeButton.style.border = 'none';
+    closeButton.style.borderRadius = '4px';
+    closeButton.style.cursor = 'pointer';
+
+    closeButton.addEventListener('click', () => {
+        document.body.removeChild(popup);
+    });
+
+    popup.appendChild(closeButton);
+
+    // Append the popup to the body
+    document.body.appendChild(popup);
+}
+
     function step6(){
 
         if(isPopupVisible){
