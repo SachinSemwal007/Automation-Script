@@ -169,7 +169,7 @@
         return false;
     }
 
-    function showAvailableDatesTable(availableDates) {
+  function showAvailableDatesTable(availableDates) {
     // Create a popup container
     const popup = document.createElement('div');
     popup.style.position = 'fixed';
@@ -221,7 +221,7 @@
         row.appendChild(cellDay);
 
         const cellDate = document.createElement('td');
-        cellDate.textContent = date.split(' ')[1]; // Extract date (e.g., "30")
+        cellDate.textContent = date.split(' ').slice(1).join(' '); // Extract full date (e.g., "30 July 2025")
         cellDate.style.padding = '8px';
         cellDate.style.borderBottom = '1px solid #eee';
         row.appendChild(cellDate);
@@ -252,6 +252,7 @@
     document.body.appendChild(popup);
 }
 
+    
     function step6(){
 
         if(isPopupVisible){
