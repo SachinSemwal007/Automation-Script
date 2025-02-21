@@ -1,0 +1,149 @@
+(function () {
+    'use strict';
+
+    const minDelay = 5000; // Minimum delay in milliseconds
+    const maxDelay = 10000; // Maximum delay in milliseconds
+    const nextWeekDelay = 3000; // Delay before checking next week
+    const previousWeekDelay = 3000; // Delay before checking previous week
+    const maxWeeksToCheck = 16; // Maximum weeks to check (8 weeks forward and 8 weeks backward)
+    let weeksChecked = 0; // Counter for weeks checked
+    let allAvailableDates = []; // Store all available dates
+    let isPopupVisible = false; // Track if a popup is visible
+    let dateFound = false; // Track if a date has been found
+    let startingWeek = null; // Store the starting week
+
+    function randomIntBetween(min, max) {
+        return Math.floor(Math.random() * (max - min + 1)) + min;
+    }
+
+    function randomDelay(callback) {
+        const delay = randomIntBetween(minDelay, maxDelay);
+        setTimeout(callback, delay);
+    }
+
+    function showToast(message) {
+        const toast = document.createElement('div');
+        toast.className = 'toast';
+        toast.textContent = message;
+        document.body.appendChild(toast);
+
+        setTimeout(() => {
+            toast.classList.add('show');
+        }, 10);
+        setTimeout(() => {
+            toast.classList.remove('show');
+            setTimeout(() => {
+                document.body.removeChild(toast);
+            }, 300);
+        }, 3000);
+    }
+
+    function getCurrentWeekRange() {
+        const weekRangeElement = document.querySelector('.centre.bold'); // Adjust selector as needed
+        if (weekRangeElement) {
+            return weekRangeElement.textContent.trim();
+        }
+        return null;
+    }
+
+    function checkForAvailableDates() {
+        const dateCells = document.querySelectorAll('.day.slotsavailable'); // Adjust selector as needed
+        let availableDates = [];
+
+        dateCells.forEach(cell => {
+            const dateLink = cell.querySelector('a');
+            if (dateLink) {
+                const dateText = dateLink.textContent.trim();
+                if (dateText) {
+                    availableDates.push(dateText);
+                }
+            }
+        });
+
+        return availableDates;
+    }
+
+    function clickAvailableDate() {
+        const dateCells = document.querySelectorAll('.day.slotsavailable'); // Adjust selector as needed
+        if (dateCells.length > 0) {
+            const firstAvailableDate = dateCells[0].querySelector('a');
+            if (firstAvailableDate) {
+                firstAvailableDate.click();
+                dateFound = true;
+                console.log('Clicked on available date:', firstAvailableDate.textContent.trim());
+                showToast('Clicked on available date: ' + firstAvailableDate.textContent.trim());
+            }
+        }
+    }
+
+    function checkNextWeek() {
+        if (dateFound || isPopupVisible) return;
+
+        const nextWeekLink = document.querySelector('#searchForWeeklySlotsNextWeek');
+        if (nextWeekLink) {
+            nextWeekLink.click();
+            console.log('Clicked on next week link');
+            showToast('Checking availability for next week...');
+
+            setTimeout(() => {
+                const availableDates = checkForAvailableDates();
+                if (availableDates.length > 0) {
+                    clickAvailableDate();
+                } else {
+                    weeksChecked++;
+                    if (weeksChecked >= maxWeeksToCheck) {
+                        console.log('Reached the maximum number of weeks to check. Starting over...');
+                        showToast('Reached the maximum number of weeks. Starting over...');
+                        weeksChecked = 0;
+                        checkPreviousWeek();
+                    } else {
+                        checkNextWeek();
+                    }
+                }
+            }, nextWeekDelay);
+        }
+    }
+
+    function checkPreviousWeek() {
+        if (dateFound || isPopupVisible) return;
+
+        const previousWeekLink = document.querySelector('#searchForWeeklySlotsPreviousWeek');
+        if (previousWeekLink) {
+            previousWeekLink.click();
+            console.log('Clicked on previous week link');
+            showToast('Checking availability for previous week...');
+
+            setTimeout(() => {
+                const availableDates = checkForAvailableDates();
+                if (availableDates.length > 0) {
+                    clickAvailableDate();
+                } else {
+                    weeksChecked++;
+                    if (weeksChecked >= maxWeeksToCheck) {
+                        console.log('Reached the maximum number of weeks to check. Starting over...');
+                        showToast('Reached the maximum number of weeks. Starting over...');
+                        weeksChecked = 0;
+                        checkNextWeek();
+                    } else {
+                        checkPreviousWeek();
+                    }
+                }
+            }, previousWeekDelay);
+        }
+    }
+
+    function startChecking() {
+        startingWeek = getCurrentWeekRange();
+        console.log('Starting week:', startingWeek);
+        showToast('Starting to check for available dates...');
+
+        checkNextWeek();
+    }
+
+    // Ensure the script runs after the page is fully loaded
+    window.addEventListener('load', () => {
+        randomDelay(startChecking);
+    });
+
+    setInterval(checkForPopup, 1000); // Check for popup every second
+})();
