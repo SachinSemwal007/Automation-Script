@@ -46,6 +46,18 @@
         return null;
     }
 
+    function checkForPopup() {
+        const popup = document.querySelector('.ui-dialog.ui-corner-all.ui-widget.ui-widget-content.ui-front'); // Adjust selector as needed
+        if (popup) {
+            console.log("Popup detected. Pausing the script to avoid detection.");
+            showToast("Popup detected. Please dismiss it manually.");
+            isPopupVisible = true;
+            return true;
+        }
+        isPopupVisible = false;
+        return false;
+    }
+
     function checkForAvailableDates() {
         const dateCells = document.querySelectorAll('.day.slotsavailable'); // Adjust selector as needed
         let availableDates = [];
