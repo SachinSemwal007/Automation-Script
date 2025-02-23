@@ -5,12 +5,12 @@
     const maxDelay = 10000; // Maximum delay in milliseconds
     const nextWeekDelay = 3000; // Delay before checking next week
     const previousWeekDelay = 3000; // Delay before checking previous week
-    const maxWeeksToCheck = 16; // Maximum weeks to check (8 weeks forward and 8 weeks backward)
+    const maxWeeksToCheck = 8; // Maximum weeks to check in one direction (forward or backward)
     let weeksChecked = 0; // Counter for weeks checked
-    let allAvailableDates = []; // Store all available dates
     let isPopupVisible = false; // Track if a popup is visible
     let dateFound = false; // Track if a date has been found
     let startingWeek = null; // Store the starting week
+    let isCheckingForward = true; // Track whether the script is checking forward or backward
 
     function randomIntBetween(min, max) {
         return Math.floor(Math.random() * (max - min + 1)) + min;
@@ -104,9 +104,10 @@
                 } else {
                     weeksChecked++;
                     if (weeksChecked >= maxWeeksToCheck) {
-                        console.log('Reached the maximum number of weeks to check. Starting over...');
-                        showToast('Reached the maximum number of weeks. Starting over...');
+                        console.log('Reached the end of forward check. Starting backward check...');
+                        showToast('Reached the end of forward check. Starting backward check...');
                         weeksChecked = 0;
+                        isCheckingForward = false; // Switch to backward check
                         checkPreviousWeek();
                     } else {
                         checkNextWeek();
@@ -132,9 +133,10 @@
                 } else {
                     weeksChecked++;
                     if (weeksChecked >= maxWeeksToCheck) {
-                        console.log('Reached the maximum number of weeks to check. Starting over...');
-                        showToast('Reached the maximum number of weeks. Starting over...');
+                        console.log('Reached the end of backward check. Starting forward check...');
+                        showToast('Reached the end of backward check. Starting forward check...');
                         weeksChecked = 0;
+                        isCheckingForward = true; // Switch to forward check
                         checkNextWeek();
                     } else {
                         checkPreviousWeek();
@@ -149,7 +151,11 @@
         console.log('Starting week:', startingWeek);
         showToast('Starting to check for available dates...');
 
-        checkNextWeek();
+        if (isCheckingForward) {
+            checkNextWeek();
+        } else {
+            checkPreviousWeek();
+        }
     }
 
     // Ensure the script runs after the page is fully loaded
