@@ -1,0 +1,135 @@
+// Global variables to manage the search
+let weeksToSearch = 4; // Number of weeks to search forward (configurable)
+let currentWeekIndex = 0; // Tracks the current week being checked
+let searchDirection = "forward"; // "forward" or "backward"
+let foundSeat = false; // Flag to stop the loop
+let isPopupVisible = false; // Assuming this is defined elsewhere in your code
+
+// Sample getWeekRange function (replace with your actual implementation)
+function getWeekRange() {
+    // This is a placeholder - replace with your actual logic to get the week range
+    const today = new Date();
+    const startDate = today.toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' });
+    return { startDate: startDate }; // e.g., "24 Feb 2025"
+}
+
+// Main function to check the current week
+function step6() {
+    if (isPopupVisible) {
+        console.log("Script paused due to popup. Please dismiss the pop-up manually.");
+        return;
+    }
+
+    console.log(`Running Step 6 - Week ${currentWeekIndex + 1}/${weeksToSearch}, Direction: ${searchDirection}`);
+
+    // Get the week range
+    const weekRange = getWeekRange();
+    if (!weekRange) {
+        console.log("Could not determine the week range");
+        return;
+    }
+
+    // Extract month and year from the start date
+    const [startDay, startMonth, startYear] = weekRange.startDate.split(' ');
+    const month = startMonth;
+    const year = startYear;
+
+    // Get available dates from the DOM
+    const dateCells = document.querySelectorAll('.day.none, .day.nonenonotif');
+    let availableDates = [];
+
+    dateCells.forEach(cell => {
+        if (cell.classList.contains('slotsavailable')) {
+            const dateLink = cell.querySelector('a');
+            if (dateLink) {
+                const dateText = dateLink.textContent.trim();
+                if (dateText) {
+                    availableDates.push({
+                        day: new Date(`${dateText} ${month} ${year}`).toLocaleString('en-US', { weekday: 'long' }),
+                        date: dateText
+                    });
+                }
+            }
+        }
+    });
+
+    if (availableDates.length > 0) {
+        // Seat found! Stop the search and show popup
+        foundSeat = true;
+        const formattedDates = availableDates.map(({ day, date }) => {
+            return `${day}, ${date} ${month} ${year}`;
+        });
+        console.log("Available dates this week:", formattedDates);
+        showAvailableDatesTable(formattedDates); // Assuming this function exists
+        showToast("Seat available!"); // Popup notification
+        return; // Exit the function to stop further execution
+    } else {
+        console.log("No available dates found in this week");
+        showToast("No dates available");
+    }
+
+    // Decide the next step based on direction and progress
+    if (!foundSeat) {
+        if (searchDirection === "forward" && currentWeekIndex < weeksToSearch - 1) {
+            // Move to the next week
+            currentWeekIndex++;
+            step7();
+        } else if (searchDirection === "forward" && currentWeekIndex === weeksToSearch - 1) {
+            // Reached the end of forward search, switch to backward
+            searchDirection = "backward";
+            console.log("Switching to backward search");
+            goToPreviousWeek();
+        } else if (searchDirection === "backward") {
+            // Continue backward search indefinitely
+            goToPreviousWeek();
+        }
+    }
+}
+
+// Move to the next week (you’ll need to provide the selector for the "Next Week" button)
+function step7() {
+    const nextWeekButton = document.querySelector('.next-week-button'); // Update this selector
+    if (nextWeekButton) {
+        console.log("Moving to next week");
+        nextWeekButton.click();
+        setTimeout(step6, 1000); // Wait 1 second for page to update
+    } else {
+        console.log("Next week button not found!");
+    }
+}
+
+// Move to the previous week (updated with your button’s ID)
+function goToPreviousWeek() {
+    const previousWeekButton = document.querySelector('#searchForWeeklySlotsPreviousWeek');
+    if (previousWeekButton) {
+        console.log("Going back to previous week");
+        previousWeekButton.click();
+        setTimeout(step6, 1000); // Wait 1 second for page to update
+    } else {
+        console.log("Previous week button not found!");
+    }
+}
+
+// Placeholder for showToast (replace with your actual implementation)
+function showToast(message) {
+    console.log("Toast:", message); // Replace with your popup logic, e.g., alert(message)
+    // Example: alert(message);
+}
+
+// Placeholder for showAvailableDatesTable (replace with your actual implementation)
+function showAvailableDatesTable(dates) {
+    console.log("Displaying table with dates:", dates);
+    // Replace with your actual table-display logic
+}
+
+// Start the search with a specified number of weeks
+function startSearch(numberOfWeeks) {
+    weeksToSearch = numberOfWeeks;
+    currentWeekIndex = 0;
+    searchDirection = "forward";
+    foundSeat = false;
+    step6(); // Kick off the search
+}
+
+// Example: Start searching for 4 weeks
+startSearch(4);
