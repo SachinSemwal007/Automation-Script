@@ -1,22 +1,16 @@
 // ==UserScript==
-// @name         DVSA Driving Test Booking Automation (Debug 3.0)
+// @name         DVSA Driving Test Booking Automation
 // @namespace    http://tampermonkey.net/
-// @version      3.0
-// @description  Automate the driving test booking process with delays, pop-up handling, looping, and multiple stop options
+// @version      2.9-simple
+// @description  Automate the driving test booking process with delays, pop-up handling, looping, and simple stop functionality
 // @include      https://driver-services.dvsa.gov.uk/*
 // @grant        none
 // ==/UserScript==
 
-// Expose functions globally for console access (fallback)
-for (let key in this) {
-    if (typeof this[key] === 'function') {
-        window[key] = this[key];
-    }
-}
-
 (function () {
     'use strict';
-    console.log("Script Loaded and Running in global scope");
+
+    console.log("Script Loaded and Running");
 
     const minDelay = 5000; // Minimum delay in milliseconds
     const maxDelay = 10000; // Maximum delay in milliseconds
@@ -29,7 +23,7 @@ for (let key in this) {
     let isPopupVisible = false; // Track if popup is visible
     let isScriptRunning = true; // Flag to control script execution (for stopping)
 
-    // Function to stop the script (already global via window.stopScript above)
+    // Function to stop the script (global for console access)
     window.stopScript = function () {
         isScriptRunning = false;
         console.log("Script stopped manually. To restart, reload the page or call startSearch() manually.");
@@ -373,44 +367,6 @@ for (let key in this) {
         }
     });
 
-    // Add timer-based stop after 1 hour (configurable)
-    setTimeout(() => {
-        if (!foundSeat && isScriptRunning) {
-            stopScript();
-            console.log("Script stopped automatically after 1 hour with no seat found.");
-        }
-    }, 3600000); // 1 hour in milliseconds
-
-    // Attempt to add a stop button (with retries and debugging, optional if blocked)
-    function addStopButton() {
-        console.log("Attempting to add Stop Script button...");
-        if (document.body) {
-            const stopButton = document.createElement('button');
-            stopButton.textContent = 'Stop Script';
-            stopButton.style.position = 'fixed';
-            stopButton.style.top = '10px';
-            stopButton.style.right = '10px';
-            stopButton.style.padding = '8px 16px';
-            stopButton.style.backgroundColor = '#ff0000';
-            stopButton.style.color = '#fff';
-            stopButton.style.border = 'none';
-            stopButton.style.borderRadius = '4px';
-            stopButton.style.cursor = 'pointer';
-            stopButton.style.zIndex = '100000'; // Increased z-index
-            stopButton.style.boxShadow = '0 2px 4px rgba(0, 0, 0, 0.2)'; // Add shadow
-
-            stopButton.addEventListener('click', () => {
-                stopScript();
-            });
-
-            document.body.appendChild(stopButton);
-            console.log("Stop Script button added to the page.");
-        } else {
-            console.log("Document body not available, retrying in 1 second...");
-            setTimeout(addStopButton, 1000); // Retry after 1 second
-        }
-    }
-
     (function createToastContainer() {
         const style = document.createElement('style');
         style.innerHTML = `
@@ -459,14 +415,10 @@ for (let key in this) {
         document.head.appendChild(style);
     })();
 
-    // Add 15-second delay before starting the script
-    window.addEventListener('DOMContentLoaded', () => {
-        console.log("DOM loaded, delaying script start by 15 seconds...");
-        setTimeout(() => {
-            console.log("Starting script after 15-second delay...");
-            randomDelay(handlePage);
-            addStopButton(); // Attempt to add the stop button (optional if blocked)
-        }, 15000); // 15 seconds delay
+    // Start the script after the page loads (no complex observers for simplicity)
+    window.addEventListener('load', () => {
+        console.log("Page loaded, starting script...");
+        randomDelay(handlePage);
     });
 
     setInterval(checkForPopup, 1000); // Check for popup every second
