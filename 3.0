@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         DVSA Driving Test Booking Automation (Debug 2.9-simple)
+// @name         DVSA Driving Test Booking Automation (Debug 2.9-simple-fixed)
 // @namespace    http://tampermonkey.net/
-// @version      2.9-simple
-// @description  Debug version with simplified looping, stop functionality, and enhanced logging
+// @version      2.9-simple-fixed
+// @description  Debug version with simplified looping, stop functionality, and enhanced logging for real testing
 // @include      https://driver-services.dvsa.gov.uk/*
 // @grant        none
 // ==/UserScript==
@@ -35,7 +35,7 @@
     }
 
     function randomDelay(callback) {
-        const delay = 8000; // Increased to 8 seconds for testing
+        const delay = 10000; // Increased to 10 seconds for testing
         console.log(`Delaying for ${delay}ms before running callback`);
         setTimeout(() => {
             console.log("Callback executed");
@@ -245,21 +245,21 @@
             }
         });
 
-        // Test case: Simulate an available seat for debugging (remove in production)
-        if (availableDates.length === 0) {
-            console.log("No real seats found, simulating a test seat for debugging...");
-            availableDates.push({
-                day: new Date(`15 ${month} ${year}`).toLocaleString('en-US', { weekday: 'long' }),
-                date: "15"
-            }); // Simulate a seat on the 15th of the current month
-        }
+        // Removed simulation for real testing (no seats available)
+        // if (availableDates.length === 0) {
+        //     console.log("No real seats found, simulating a test seat for debugging...");
+        //     availableDates.push({
+        //         day: new Date(`15 ${month} ${year}`).toLocaleString('en-US', { weekday: 'long' }),
+        //         date: "15"
+        //     }); // Simulate a seat on the 15th of the current month
+        // }
 
         if (availableDates.length > 0) {
             foundSeat = true;
             const formattedDates = availableDates.map(({ day, date }) => {
                 return `${day}, ${date} ${month} ${year}`;
             });
-            console.log("Available dates this week (real or simulated):", formattedDates);
+            console.log("Available dates this week (real):", formattedDates);
             showAvailableDatesTable(formattedDates);
             showToast("Seat available!");
             return; // Exit the function to stop further execution
@@ -314,7 +314,7 @@
                 console.log("Clicked on next week link");
                 showToast('Checking availability for next week....');
 
-                setTimeout(step6, 8000); // Increased to 8 seconds
+                setTimeout(step6, 10000); // Increased to 10 seconds
             }, nextWeekDelay);
         } else {
             console.log("Next week button not found or seat already found");
@@ -333,7 +333,7 @@
             console.log("Previous week button found, attempting click...");
             previousWeekButton.click();
             console.log("Clicked on previous week button");
-            setTimeout(step6, 8000); // Increased to 8 seconds
+            setTimeout(step6, 10000); // Increased to 10 seconds
         } else {
             console.log("Previous week button not found! Looping back to start forward search...");
             searchDirection = "forward";
