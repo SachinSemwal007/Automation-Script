@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         DVSA Driving Test Booking Automation
+// @name         DVSA Driving Test Booking Automation (Debug 2.9-simple)
 // @namespace    http://tampermonkey.net/
 // @version      2.9-simple
-// @description  Automate the driving test booking process with delays, pop-up handling, looping, and simple stop functionality
+// @description  Debug version with simplified looping, stop functionality, and enhanced logging
 // @include      https://driver-services.dvsa.gov.uk/*
 // @grant        none
 // ==/UserScript==
@@ -35,8 +35,12 @@
     }
 
     function randomDelay(callback) {
-        const delay = 4000;
-        setTimeout(callback, delay);
+        const delay = 8000; // Increased to 8 seconds for testing
+        console.log(`Delaying for ${delay}ms before running callback`);
+        setTimeout(() => {
+            console.log("Callback executed");
+            callback();
+        }, delay);
     }
 
     function showToast(message) {
@@ -63,11 +67,25 @@
     function checkForPopup() {
         const popup = document.querySelector('.ui-dialog.ui-corner-all.ui-widget.ui-widget-content.ui-front');
         if (popup) {
-            console.log("Popup detected. Pausing the script to avoid detection");
-            showToast("Popup detected. Please dismiss it manually.");
-            isPopupVisible = true;
-            return true;
+            console.log("Popup detected. Checking if it’s blocking...");
+            const popupText = popup.textContent || popup.innerText;
+            if (popupText.includes("Currently no tests are available")) {
+                console.log("Informational popup detected, ignoring...");
+                isPopupVisible = false;
+                return false;
+            }
+
+            const isVisible = window.getComputedStyle(popup).display !== 'none' && window.getComputedStyle(popup).visibility !== 'hidden';
+            const isModal = popup.getAttribute('role') === 'dialog' || popup.querySelector('.ui-dialog-titlebar-close');
+
+            if (isVisible && isModal) {
+                console.log("Blocking popup detected. Pausing the script to avoid detection");
+                showToast("Blocking popup detected. Please dismiss it manually.");
+                isPopupVisible = true;
+                return true;
+            }
         }
+        console.log("No blocking popup detected, proceeding...");
         isPopupVisible = false;
         return false;
     }
@@ -296,7 +314,7 @@
                 console.log("Clicked on next week link");
                 showToast('Checking availability for next week....');
 
-                setTimeout(step6, 5000);
+                setTimeout(step6, 8000); // Increased to 8 seconds
             }, nextWeekDelay);
         } else {
             console.log("Next week button not found or seat already found");
@@ -315,10 +333,9 @@
             console.log("Previous week button found, attempting click...");
             previousWeekButton.click();
             console.log("Clicked on previous week button");
-            setTimeout(step6, 5000); // Wait 5 seconds for the page to update
+            setTimeout(step6, 8000); // Increased to 8 seconds
         } else {
             console.log("Previous week button not found! Looping back to start forward search...");
-            // When no previous week button is found, loop back to the start and search forward again
             searchDirection = "forward";
             currentWeekIndex = 0; // Reset to start forward from the beginning
             step7(); // Start the forward search again
@@ -331,19 +348,14 @@
             return;
         }
 
+        console.log('Current page title:', document.title);
         if (checkForPopup()) {
             console.log("Script paused due to popup. Please dismiss the pop-up manually.");
             return;
         }
 
-        switch (document.title) {
-            case "Test date selection":
-                startSearch(); // Start the multi-week search
-                break;
-            default:
-                console.log('Unknown page title:', document.title);
-                break;
-        }
+        console.log("Forcing startSearch for testing...");
+        startSearch(); // Force run for testing, bypassing title check
     }
 
     function startSearch() {
@@ -352,7 +364,7 @@
             return;
         }
 
-        console.log("Starting search... Initial state - currentWeekIndex:", currentWeekIndex, "searchDirection:", searchDirection, "foundSeat:", foundSeat);
+        console.log("Starting search... Initial state - isScriptRunning:", isScriptRunning, "currentWeekIndex:", currentWeekIndex, "searchDirection:", searchDirection, "foundSeat:", foundSeat);
         currentWeekIndex = 0;
         searchDirection = "forward";
         foundSeat = false;
@@ -415,7 +427,7 @@
         document.head.appendChild(style);
     })();
 
-    // Start the script after the page loads (no complex observers for simplicity)
+    // Start the script after the page loads (simple approach)
     window.addEventListener('load', () => {
         console.log("Page loaded, starting script...");
         randomDelay(handlePage);
