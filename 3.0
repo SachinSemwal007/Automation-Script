@@ -7,8 +7,6 @@
 // @grant        none
 // ==/UserScript==
 
-
-
 (function () {
     'use strict';
 
@@ -17,7 +15,7 @@
     const minDelay = 5000; // Minimum delay in milliseconds
     const maxDelay = 10000; // Maximum delay in milliseconds
     const nextWeekDelay = 2000;
-    const weeksToSearch = 4; // Number of weeks to search forward (configurable)
+    const weeksToSearch = 6; // Number of weeks to search forward (configurable)
     let currentWeekIndex = 0; // Tracks the current week being checked
     let searchDirection = "forward"; // "forward" or "backward"
     let foundSeat = false; // Flag to stop the loop when a seat is found
@@ -66,7 +64,7 @@
         element.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
 
-   function checkForPopup() {
+     function checkForPopup() {
         const popup = document.querySelector('.ui-dialog.ui-corner-all.ui-widget.ui-widget-content.ui-front');
         if (popup) {
             console.log("Popup detected. Checking if it’s blocking...");
@@ -75,12 +73,12 @@
                 console.log("Non-blocking popup detected (info or warning), ignoring...");
                 isPopupVisible = false;
                 // Attempt to click "Okay, thanks" if present
-                const okayButton = popup.querySelector('button:contains("Okay, thanks")') || popup.querySelector('button');
-                if (okayButton) {
-                    console.log("Attempting to click 'Okay, thanks' button...");
-                    okayButton.click(); // Try to dismiss it automatically
-                }
-                return false;
+               // const okayButton = popup.querySelector('button:contains("Okay, thanks")') || popup.querySelector('button');
+               // if (okayButton) {
+                 //   console.log("Attempting to click 'Okay, thanks' button...");
+             //     //  okayButton.click(); // Try to dismiss it automatically
+              //  }
+               // return false;
             }
 
             const isVisible = window.getComputedStyle(popup).display !== 'none' && window.getComputedStyle(popup).visibility !== 'hidden';
@@ -97,6 +95,7 @@
         isPopupVisible = false;
         return false;
     }
+
     function showAvailableDatesTable(availableDates) {
         const popup = document.createElement('div');
         popup.style.position = 'fixed';
@@ -233,7 +232,7 @@
         const year = startYear;
 
         // Get available dates from the DOM
-        const dateCells = document.querySelectorAll('.day.none, .day.nonenonotif');
+        const dateCells = document.querySelectorAll('.day.none, .day.nonenonotif, .slotsavailable');
         console.log("Found date cells:", dateCells.length);
         let availableDates = [];
 
