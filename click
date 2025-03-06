@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         DVSA Driving Test Booking Automation (Click on Seat)
+// @name         DVSA Driving Test Booking Automation (Click on Seat - Refined)
 // @namespace    http://tampermonkey.net/
-// @version      2.13
-// @description  Version with 15-second delay, clicks on available seats, popup handling, and stop functionality
+// @version      2.15
+// @description  Version with 15-second delay, refined seat click logic, popup handling, and stop functionality
 // @include      https://driver-services.dvsa.gov.uk/*
 // @grant        none
 // ==/UserScript==
@@ -161,35 +161,52 @@
         let availableDates = [];
 
         dateCells.forEach(cell => {
-            // Check if the cell contains a number indicating availability
-            const cellText = cell.textContent.trim();
-            const availability = parseInt(cellText, 10);
-            if (!isNaN(availability) && availability > 0) { // Treat any positive number as an available slot
-                const dateLink = cell.querySelector('a'); // Find the link within the cell
-                if (dateLink) {
+            // Check if the cell contains a link with a "view" span, indicating availability
+            const dateLink = cell.querySelector('a');
+            if (dateLink) {
+                const viewSpan = dateLink.querySelector('span.view');
+                if (viewSpan) {
+                    const cellText = cell.textContent.trim().replace(/[^\d]/g, ''); // Extract number if present
+                    const availability = parseInt(cellText, 10) || 1; // Default to 1 if no number found, assuming "view" indicates availability
                     availableDates.push({
                         day: new Date(`${cell.getAttribute('data-day') || cellText} ${month} ${year}`).toLocaleString('en-US', { weekday: 'long' }) || 'Unknown Day',
-                        date: cellText,
+                        date: cellText || cell.getAttribute('data-day'),
                         availability: availability,
                         link: dateLink
                     });
-                    console.log(`Found available slot: ${availability} on ${cellText} ${month} ${year}`);
+                    console.log(`Found available slot: ${availability} on ${cellText || cell.getAttribute('data-day')} ${month} ${year}`);
                 }
+            } else {
+                console.log(`No link found in cell:`, cell.textContent.trim());
             }
         });
 
         if (availableDates.length > 0) {
             foundSeat = true;
             console.log("Available dates this week (real):", availableDates.map(d => `${d.day}, ${d.date} ${month} ${year} (Availability: ${d.availability})`));
-            showToast("Seat available! Clicking the first available date...");
-            // Click the first available date link
+            showToast("Seat available! Attempting to click the first available date...");
+            // Click the first available date link with a retry mechanism
             if (availableDates[0].link) {
-                availableDates[0].link.click();
-                console.log("Clicked on available date:", availableDates[0].date);
+                const clickSeat = () => {
+                    try {
+                        availableDates[0].link.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        setTimeout(() => {
+                            availableDates[0].link.click();
+                            console.log("Clicked on available date:", availableDates[0].date);
+                        }, 1000); // 1-second delay before click
+                    } catch (error) {
+                        console.error("Failed to click available date:", error);
+                        showToast("Click failed, retrying...");
+                        setTimeout(clickSeat, 2000); // Retry after 2 seconds if it fails
+                    }
+                };
+                clickSeat();
+                return; // Halt the loop after attempting the click
             } else {
-                console.log("No clickable link found for the available date.");
+                console.log("No clickable link found for the first available date.");
+                showToast("No clickable link found for the available date.");
             }
-            return; // Exit the function to stop further execution
+            return; // Ensure the function exits even if no link is found
         } else {
             console.log("No available dates found in this week");
             showToast("No dates available");
