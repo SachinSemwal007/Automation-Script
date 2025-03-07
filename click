@@ -230,6 +230,8 @@
         }
     }
 
+step6()
+
     function step7() {
         if (!isScriptRunning) {
             console.log("Script is stopped, skipping step7.");
