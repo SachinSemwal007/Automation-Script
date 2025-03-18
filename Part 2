@@ -64,31 +64,32 @@
         element.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
 
-    function checkForPopup() {
-        const popup = document.querySelector('.ui-dialog.ui-corner-all.ui-widget.ui-widget-content.ui-front');
-        if (popup) {
-            console.log("Popup detected. Checking if it’s blocking...");
-            const popupText = popup.textContent || popup.innerText;
-            if (popupText.includes("Currently no tests are available")) {
-                console.log("Informational popup detected, ignoring...");
-                isPopupVisible = false;
-                return false;
-            }
-
-            const isVisible = window.getComputedStyle(popup).display !== 'none' && window.getComputedStyle(popup).visibility !== 'hidden';
-            const isModal = popup.getAttribute('role') === 'dialog' || popup.querySelector('.ui-dialog-titlebar-close');
-
-            if (isVisible && isModal) {
-                console.log("Blocking popup detected. Pausing the script to avoid detection");
-                showToast("Blocking popup detected. Please dismiss it manually.");
-                isPopupVisible = true;
-                return true;
-            }
+   function checkForPopup() {
+    const popup = document.querySelector('.ui-dialog.ui-corner-all.ui-widget.ui-widget-content.ui-front');
+    if (popup) {
+        const popupText = popup.textContent || popup.innerText;
+        if (popupText.includes("Currently no tests are available")) {
+            console.log("Informational popup detected, ignoring...");
+            isPopupVisible = false;
+            return false;
         }
-        console.log("No blocking popup detected, proceeding...");
-        isPopupVisible = false;
-        return false;
+
+        const isVisible = window.getComputedStyle(popup).display !== 'none' && window.getComputedStyle(popup).visibility !== 'hidden';
+        if (isVisible) {
+            console.log("Blocking popup detected. Pausing the script...");
+            showToast("Blocking popup detected. Please dismiss it manually.");
+            isPopupVisible = true;
+            return true;
+        }
     }
+    if (isPopupVisible) {
+        console.log("Popup dismissed, resuming script...");
+        isPopupVisible = false;
+        startSearch(); // Resume the search
+    }
+    console.log("No blocking popup detected, proceeding...");
+    return false;
+}
 
     function showAvailableDatesTable(availableDates) {
         const popup = document.createElement('div');
