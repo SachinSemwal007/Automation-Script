@@ -240,6 +240,14 @@
         return false;
     }
 
+// Add keyboard shortcut to stop the script (Ctrl + Shift + S)
+    document.addEventListener('keydown', (event) => {
+        if (event.ctrlKey && event.shiftKey && event.key === 'S') {
+            stopScript();
+            event.preventDefault(); // Prevent default browser behavior
+        }
+    });
+
     // Start the script
     window.addEventListener('load', () => {
         console.log("Page loaded, starting script...");
