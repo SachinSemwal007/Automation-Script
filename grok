@@ -161,7 +161,7 @@
         const month = startMonth;
         const year = startYear;
 
-        const dateCells = document.querySelectorAll('.day.none, .day.nonenonotif');
+        const dateCells = document.querySelectorAll('.day.none, .day.nonenonotif , .slotsavailable');
         console.log("Found date cells:", dateCells.length);
         let availableDates = [];
 
@@ -217,6 +217,8 @@
             }
         }
     }
+
+step6()
 
     function step7() {
         if (!isScriptRunning) {
