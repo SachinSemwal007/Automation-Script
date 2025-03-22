@@ -15,15 +15,15 @@
     const minDelay = 5000;
     const maxDelay = 10000;
     const nextWeekDelay = 4000;
-    const weeksToSearch = 4;
-    let currentWeekIndex = 0;
-    let backwardWeekIndex = 0;
-    let searchDirection = "forward";
-    let foundSeat = false;
-    let isPopupVisible = false;
-    let isScriptRunning = true;
-    let isInitialDelayComplete = false;
+    const weeksToSearch = 4; // Number of weeks to search forward AND backward (configurable)
+    let currentWeekIndex = 0; // Tracks the current week in the forward direction
+    let backwardWeekIndex = 0; // Tracks the current week in the backward direction
+    let searchDirection = "forward"; // "forward" or "backward"
+    let foundSeat = false; // Flag to stop the loop when a seat is found
+    let isPopupVisible = false; // Track if popup is visible
+    let isScriptRunning = true; // Flag to control script execution
 
+    // Function to stop the script (global for console access)
     window.stopScript = function () {
         isScriptRunning = false;
         console.log("Script stopped manually. To restart, reload the page or call startSearch() manually.");
@@ -35,7 +35,7 @@
     }
 
     function randomDelay(callback) {
-        const delay = randomIntBetween(minDelay, maxDelay);
+        const delay = 8000; // Fixed 8-second delay for consistency
         console.log(`Delaying for ${delay}ms before running callback`);
         setTimeout(() => {
             console.log("Callback executed");
@@ -97,13 +97,13 @@
         availableDates.forEach(date => {
             const row = document.createElement('tr');
             const cellDay = document.createElement('td');
-            cellDay.textContent = date.split(', ')[0];
+            cellDay.textContent = date.split(', ')[0]; // Extract day (e.g., "Wednesday")
             cellDay.style.padding = '8px';
             cellDay.style.borderBottom = '1px solid #eee';
             row.appendChild(cellDay);
 
             const cellDate = document.createElement('td');
-            cellDate.textContent = date.split(', ').slice(1).join(', ');
+            cellDate.textContent = date.split(', ').slice(1).join(', '); // Extract full date
             cellDate.style.padding = '8px';
             cellDate.style.borderBottom = '1px solid #eee';
             row.appendChild(cellDate);
@@ -135,56 +135,12 @@
     function getWeekRange() {
         const today = new Date();
         const startDate = today.toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' });
-        return { startDate: startDate };
-    }
-
-    function checkForPopup() {
-        const popup = document.querySelector('.ui-dialog.ui-corner-all.ui-widget.ui-widget-content.ui-front');
-        if (popup) {
-            const popupText = popup.textContent || popup.innerText;
-            if (popupText.includes("Currently no tests are available")) {
-                isPopupVisible = false;
-                return false;
-            }
-            if (popupText.includes("Only use the buttons on the web page to move around the service")) {
-                console.log("Warning popup detected: 'Only use the buttons on the web page...'");
-                const okayButton = popup.querySelector('button') || popup.querySelector('input[type="button"][value="Okay, thanks"]');
-                if (okayButton) {
-                    console.log("Clicking 'Okay, thanks' button to dismiss warning popup...");
-                    okayButton.click();
-                    isPopupVisible = false;
-                    return false;
-                } else {
-                    console.log("Warning popup detected but 'Okay, thanks' button not found. Pausing script...");
-                    showToast("Warning popup detected. Please dismiss it manually.");
-                    isPopupVisible = true;
-                    return true;
-                }
-            }
-            const isVisible = window.getComputedStyle(popup).display !== 'none' && window.getComputedStyle(popup).visibility !== 'hidden';
-            if (isVisible) {
-                console.log("Blocking popup detected. Pausing the script...");
-                showToast("Blocking popup detected. Please dismiss it manually.");
-                isPopupVisible = true;
-                return true;
-            }
-        }
-        if (isPopupVisible && isInitialDelayComplete) {
-            console.log("Popup dismissed, resuming script...");
-            isPopupVisible = false;
-            step6();
-        }
-        return false;
+        return { startDate: startDate }; // e.g., "18 Mar 2025"
     }
 
     function step6() {
         if (!isScriptRunning) {
             console.log("Script is stopped, skipping step6.");
-            return;
-        }
-
-        if (!isInitialDelayComplete) {
-            console.log("Initial 15-second delay not complete, skipping step6.");
             return;
         }
 
@@ -205,7 +161,7 @@
         const month = startMonth;
         const year = startYear;
 
-        const dateCells = document.querySelectorAll('.day.none, .day.nonenonotif');
+        const dateCells = document.querySelectorAll('.day.none, .day.nonenonotif , .slotsavailable');
         console.log("Found date cells:", dateCells.length);
         let availableDates = [];
 
@@ -233,7 +189,7 @@
             console.log("Available dates this week:", formattedDates);
             showAvailableDatesTable(formattedDates);
             showToast("Seat available!");
-            return;
+            return; // Stop when a seat is found
         } else {
             console.log("No available dates found in this week");
             showToast("No dates available");
@@ -247,7 +203,7 @@
             } else if (searchDirection === "forward" && currentWeekIndex === weeksToSearch - 1) {
                 console.log("Reached end of forward search, switching to backward...");
                 searchDirection = "backward";
-                backwardWeekIndex = 0;
+                backwardWeekIndex = 0; // Start backward from the current point
                 goToPreviousWeek();
             } else if (searchDirection === "backward" && backwardWeekIndex < weeksToSearch - 1) {
                 console.log("Moving to previous week backward...");
@@ -256,20 +212,17 @@
             } else if (searchDirection === "backward" && backwardWeekIndex === weeksToSearch - 1) {
                 console.log("Reached end of backward search, looping back to forward...");
                 searchDirection = "forward";
-                currentWeekIndex = 0;
+                currentWeekIndex = 0; // Reset to start forward again
                 step7();
             }
         }
     }
 
+step6()
+
     function step7() {
         if (!isScriptRunning) {
             console.log("Script is stopped, skipping step7.");
-            return;
-        }
-
-        if (!isInitialDelayComplete) {
-            console.log("Initial 15-second delay not complete, skipping step7.");
             return;
         }
 
@@ -284,35 +237,21 @@
         if (nextWeekLink && !foundSeat) {
             console.log("Next week button found, attempting click...");
             setTimeout(() => {
-                if (checkForPopup()) return;
+                if (checkForPopup()) return; // Check popup before clicking
                 nextWeekLink.click();
                 console.log("Clicked on next week link");
                 showToast("Checking availability for next week...");
-
-                const pauseAfterWeeks = 2;
-                if (searchDirection === "forward" && currentWeekIndex % pauseAfterWeeks === 0 && currentWeekIndex !== 0) {
-                    console.log(`Pausing for 10 seconds after ${pauseAfterWeeks} weeks to avoid rate limiting...`);
-                    setTimeout(() => {
-                        setTimeout(step6, randomIntBetween(5000, 8000));
-                    }, 10000);
-                } else {
-                    setTimeout(step6, randomIntBetween(5000, 8000));
-                }
-            }, randomIntBetween(1000, 3000));
+                setTimeout(step6, 8000);
+            }, nextWeekDelay);
         } else {
             console.log("Next week button not found or seat found, retrying...");
-            setTimeout(step7, 2000);
+            setTimeout(step7, 2000); // Retry after 2 seconds if button is missing
         }
     }
 
     function goToPreviousWeek() {
         if (!isScriptRunning) {
             console.log("Script is stopped, skipping goToPreviousWeek.");
-            return;
-        }
-
-        if (!isInitialDelayComplete) {
-            console.log("Initial 15-second delay not complete, skipping goToPreviousWeek.");
             return;
         }
 
@@ -326,26 +265,17 @@
         if (previousWeekButton && !foundSeat) {
             console.log("Previous week button found, attempting click...");
             setTimeout(() => {
-                if (checkForPopup()) return;
+                if (checkForPopup()) return; // Check popup before clicking
                 previousWeekButton.click();
                 console.log("Clicked on previous week button");
-
-                const pauseAfterWeeks = 2;
-                if (searchDirection === "backward" && backwardWeekIndex % pauseAfterWeeks === 0 && backwardWeekIndex !== 0) {
-                    console.log(`Pausing for 10 seconds after ${pauseAfterWeeks} weeks to avoid rate limiting...`);
-                    setTimeout(() => {
-                        setTimeout(step6, randomIntBetween(5000, 8000));
-                    }, 10000);
-                } else {
-                    setTimeout(step6, randomIntBetween(5000, 8000));
-                }
-            }, randomIntBetween(1000, 3000));
+                setTimeout(step6, 8000);
+            }, nextWeekDelay);
         } else {
             console.log("Previous week button not found or seat found, switching to forward...");
             searchDirection = "forward";
             currentWeekIndex = 0;
             backwardWeekIndex = 0;
-            step7();
+            step7(); // Loop back to forward if no previous week available
         }
     }
 
@@ -355,45 +285,58 @@
             return;
         }
 
-        if (!isInitialDelayComplete) {
-            console.log("Initial 15-second delay not complete, skipping startSearch.");
-            return;
-        }
-
         console.log("Starting search...");
         currentWeekIndex = 0;
         backwardWeekIndex = 0;
         searchDirection = "forward";
         foundSeat = false;
-        step6();
+        step6(); // Kick off the search
     }
 
-    // Start the script with a 15-second delay and add the keyboard listener
-    window.addEventListener('load', () => {
-        console.log("Page loaded, waiting 15 seconds before starting script...");
-        setTimeout(() => {
-            console.log("15-second delay complete, starting script...");
-            isInitialDelayComplete = true;
-
-            // Add the keyboard shortcut listener here
-            if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
-                document.addEventListener('keydown', (event) => {
-                    if (event.ctrlKey && event.shiftKey && event.key === 'S') {
-                        window.stopScript();
-                        event.preventDefault();
-                    }
-                });
-                console.log("Keyboard shortcut listener added successfully.");
-            } else {
-                console.error("document.addEventListener is not available. Keyboard shortcut will not work.");
+    function checkForPopup() {
+        const popup = document.querySelector('.ui-dialog.ui-corner-all.ui-widget.ui-widget-content.ui-front');
+        if (popup) {
+            const popupText = popup.textContent || popup.innerText;
+            if (popupText.includes("Currently no tests are available")) {
+                isPopupVisible = false;
+                return false;
             }
+            const isVisible = window.getComputedStyle(popup).display !== 'none' && window.getComputedStyle(popup).visibility !== 'hidden';
+            if (isVisible) {
+                console.log("Blocking popup detected. Pausing the script...");
+                showToast("Blocking popup detected. Please dismiss it manually.");
+                isPopupVisible = true;
+                return true;
+            }
+        }
+        if (isPopupVisible) {
+            console.log("Popup dismissed, resuming script...");
+            isPopupVisible = false;
+            step6(); // Resume where it left off
+        }
+        return false;
+    }
 
-            randomDelay(startSearch);
-        }, 15000);
+    // Add keyboard shortcut to stop the script (Ctrl + Shift + S)
+    document.addEventListener('keydown', (event) => {
+        if (event.ctrlKey && event.shiftKey && event.key === 'S') {
+            window.stopScript(); // Explicitly call the global function
+            event.preventDefault(); // Prevent default browser behavior
+        }
     });
 
-    setInterval(checkForPopup, 1000);
+    // Start the script with a 15-second delay
+    window.addEventListener('load', () => {
+        console.log("Page loaded, waiting 15 seconds to allow adding test centers...");
+        setTimeout(() => {
+            console.log("15-second delay complete, starting script...");
+            randomDelay(startSearch);
+        }, 15000); // 15-second delay (15000ms)
+    });
 
+    setInterval(checkForPopup, 1000); // Check for popup every second
+
+    // Toast styles
     (function createToastContainer() {
         const style = document.createElement('style');
         style.innerHTML = `
