@@ -373,15 +373,25 @@
         step6(); // Kick off the search
     }
 
-    // Start the script with a 15-second delay
-    window.addEventListener('load', () => {
-        console.log("Page loaded, waiting 15 seconds before starting script...");
-        setTimeout(() => {
-            console.log("15-second delay complete, starting script...");
-            isInitialDelayComplete = true; // Mark the delay as complete
-            randomDelay(startSearch);
-        }, 15000); // 15-second delay (15000ms)
-    });
+// Replace the window.addEventListener('load', ...) block with this:
+window.addEventListener('load', () => {
+    console.log("Page loaded, waiting 15 seconds before starting script...");
+    setTimeout(() => {
+        console.log("15-second delay complete, checking page readiness...");
+        isInitialDelayComplete = true;
+        // Ensure the page is ready before starting
+        const checkReady = setInterval(() => {
+            const nextWeekLink = document.querySelector('#searchForWeeklySlotsNextWeek');
+            if (nextWeekLink) {
+                clearInterval(checkReady);
+                console.log("Page is ready, starting search...");
+                randomDelay(startSearch);
+            } else {
+                console.log("Page not fully loaded, waiting...");
+            }
+        }, 1000); // Check every second
+    }, 15000); // 15-second initial delay
+});
 
     setInterval(checkForPopup, 1000); // Check for popup every second
 
