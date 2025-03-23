@@ -218,7 +218,7 @@
         }
     }
 
-step6()
+   step6()
 
     function step7() {
         if (!isScriptRunning) {
