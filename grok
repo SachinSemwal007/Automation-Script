@@ -12,6 +12,8 @@
 
     console.log("Script Loaded and Running");
 
+
+
     const minDelay = 5000;
     const maxDelay = 10000;
     const nextWeekDelay = 4000;
