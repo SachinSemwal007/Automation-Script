@@ -1,0 +1,396 @@
+// ==UserScript==
+// @name         DVSA Driving Test Booking Automation (Debug 2.9-simple)
+// @namespace    http://tampermonkey.net/
+// @version      2.9-simple
+// @description  Debug version with simplified looping, stop functionality, and enhanced logging
+// @include      https://driver-services.dvsa.gov.uk/*
+// @grant        none
+// ==/UserScript==
+
+(function () {
+    'use strict';
+
+    console.log("Script Loaded and Running");
+
+    const minDelay = 5000;
+    const maxDelay = 10000;
+    const nextWeekDelay = 4000;
+    const weeksToSearch = 4; // Number of weeks to search forward AND backward (configurable)
+    const minWaitAfterLoad = 8000; // Increased to 8 seconds to give more time for main-iframe
+    const navigationDelay = 5000; // Additional delay (in ms) between week navigations
+    const maxIframeRetries = 3; // Maximum number of retries if main-iframe is missing
+    let currentWeekIndex = 0; // Tracks the current week in the forward direction
+    let backwardWeekIndex = 0; // Tracks the current week in the backward direction
+    let searchDirection = "forward"; // "forward" or "backward"
+    let foundSeat = false; // Flag to stop the loop when a seat is found
+    let isPopupVisible = false; // Track if popup is visible
+    let isScriptRunning = true; // Flag to control script execution
+    let isBusy = false; // Flag to prevent overlapping actions
+
+    // Function to stop the script (global for console access)
+    window.stopScript = function () {
+        isScriptRunning = false;
+        console.log("Script stopped manually. To restart, reload the page or call startSearch() manually.");
+        showToast("Script stopped manually.");
+    };
+
+    function randomIntBetween(min, max) {
+        return Math.floor(Math.random() * (max - min + 1)) + min;
+    }
+
+    function randomDelay(callback) {
+        const delay = 8000; // Fixed 8-second delay for consistency
+        console.log(`Delaying for ${delay}ms before running callback`);
+        setTimeout(() => {
+            console.log("Callback executed");
+            callback();
+        }, delay);
+    }
+
+    function showToast(message) {
+        const toast = document.createElement('div');
+        toast.className = 'toast';
+        toast.textContent = message;
+        document.body.appendChild(toast);
+
+        setTimeout(() => toast.classList.add('show'), 10);
+        setTimeout(() => {
+            toast.classList.remove('show');
+            setTimeout(() => document.body.removeChild(toast), 300);
+        }, 3000);
+    }
+
+    function getWeekRange() {
+        const today = new Date();
+        const startDate = today.toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' });
+        return { startDate: startDate }; // e.g., "18 Mar 2025"
+    }
+
+    // Function to wait for an element to appear in the DOM
+    function waitForElement(selector, timeout = 15000) {
+        return new Promise((resolve, reject) => {
+            const element = document.querySelector(selector);
+            if (element) {
+                resolve(element);
+                return;
+            }
+
+            const observer = new MutationObserver((mutations, obs) => {
+                const el = document.querySelector(selector);
+                if (el) {
+                    obs.disconnect();
+                    resolve(el);
+                }
+            });
+
+            observer.observe(document.body, { childList: true, subtree: true });
+
+            setTimeout(() => {
+                observer.disconnect();
+                reject(new Error(`Element ${selector} not found within ${timeout}ms`));
+            }, timeout);
+        });
+    }
+
+    function step6() {
+        if (!isScriptRunning) {
+            console.log("Script is stopped, skipping step6.");
+            return;
+        }
+
+        if (isPopupVisible) {
+            console.log("Script paused due to popup. Please dismiss the pop-up manually.");
+            return;
+        }
+
+        if (isBusy) {
+            console.log("Script is busy, waiting before proceeding to step6...");
+            setTimeout(step6, 2000);
+            return;
+        }
+
+        console.log(`Running Step 6 - Week ${searchDirection === "forward" ? currentWeekIndex + 1 : backwardWeekIndex + 1}/${weeksToSearch}, Direction: ${searchDirection}`);
+
+        const weekRange = getWeekRange();
+        if (!weekRange) {
+            console.log("Could not determine the week range");
+            return;
+        }
+
+        const [startDay, startMonth, startYear] = weekRange.startDate.split(' ');
+        const month = startMonth;
+        const year = startYear;
+
+        const dateCells = document.querySelectorAll('.day.none, .day.nonenonotif, .slotsavailable');
+        console.log("Found date cells:", dateCells.length);
+        let availableDates = [];
+
+        dateCells.forEach(cell => {
+            if (cell.classList.contains('slotsavailable')) {
+                const dateLink = cell.querySelector('a');
+                if (dateLink) {
+                    const dateText = dateLink.textContent.trim();
+                    if (dateText && !isNaN(parseInt(dateText))) {
+                        const parsedDate = new Date(`${dateText} ${month} ${year}`);
+                        if (!isNaN(parsedDate.getTime())) {
+                            availableDates.push({
+                                day: parsedDate.toLocaleString('en-US', { weekday: 'long' }),
+                                date: dateText
+                            });
+                        }
+                    }
+                }
+            }
+        });
+
+        if (availableDates.length > 0) {
+            foundSeat = true;
+            const formattedDates = availableDates.map(({ day, date }) => `${day}, ${date} ${month} ${year}`);
+            console.log("Available dates this week:", formattedDates);
+            showToast("Seat available!");
+            return; // Stop when a seat is found
+        } else {
+            console.log("No available dates found in this week");
+            showToast("No dates available");
+        }
+
+        if (!foundSeat) {
+            if (searchDirection === "forward" && currentWeekIndex < weeksToSearch - 1) {
+                console.log("Moving to next week forward...");
+                currentWeekIndex++;
+                setTimeout(step7, navigationDelay); // Add delay before moving to next week
+            } else if (searchDirection === "forward" && currentWeekIndex === weeksToSearch - 1) {
+                console.log("Reached end of forward search, switching to backward...");
+                searchDirection = "backward";
+                backwardWeekIndex = 0; // Start backward from the current point
+                setTimeout(goToPreviousWeek, navigationDelay); // Add delay before switching direction
+            } else if (searchDirection === "backward" && backwardWeekIndex < weeksToSearch - 1) {
+                console.log("Moving to previous week backward...");
+                backwardWeekIndex++;
+                setTimeout(goToPreviousWeek, navigationDelay); // Add delay before moving to previous week
+            } else if (searchDirection === "backward" && backwardWeekIndex === weeksToSearch - 1) {
+                console.log("Reached end of backward search, looping back to forward...");
+                searchDirection = "forward";
+                currentWeekIndex = 0; // Reset to start forward again
+                setTimeout(step7, navigationDelay); // Add delay before looping back
+            }
+        }
+    }
+
+    function step7(retryCount = 0) {
+        if (!isScriptRunning) {
+            console.log("Script is stopped, skipping step7.");
+            return;
+        }
+
+        if (isPopupVisible) {
+            console.log("Script paused due to popup. Please dismiss the pop-up manually.");
+            return;
+        }
+
+        if (isBusy) {
+            console.log("Script is busy, waiting before proceeding to step7...");
+            setTimeout(() => step7(retryCount), 2000);
+            return;
+        }
+
+        console.log(`Running Step 7 - Direction: ${searchDirection}`);
+        const nextWeekLink = document.querySelector('#searchForWeeklySlotsNextWeek');
+
+        if (nextWeekLink && !foundSeat) {
+            console.log("Next week button found, attempting click...");
+            if (checkForPopup()) return; // Check popup before clicking
+
+            isBusy = true; // Set busy flag to prevent overlapping actions
+            nextWeekLink.click();
+            console.log("Clicked on next week link");
+            showToast("Checking availability for next week...");
+
+            // Wait for both the calendar and main-iframe to ensure the page is fully loaded
+            Promise.all([
+                waitForElement('.day.none, .day.nonenonotif, .slotsavailable', 15000),
+                waitForElement('#main-iframe', 15000)
+            ])
+                .then(([calendar, iframe]) => {
+                    console.log("Calendar and main-iframe updated, waiting additional time before proceeding...");
+                    console.log("Main iframe element:", iframe);
+                    setTimeout(() => {
+                        console.log("Proceeding to step6...");
+                        isBusy = false; // Clear busy flag
+                        step6();
+                    }, minWaitAfterLoad);
+                })
+                .catch((err) => {
+                    console.error("Failed to load calendar or main-iframe after clicking next week:", err);
+                    if (retryCount < maxIframeRetries && err.message.includes("main-iframe")) {
+                        console.log(`Retrying (${retryCount + 1}/${maxIframeRetries}) due to missing main-iframe...`);
+                        showToast(`Retrying due to missing main-iframe (${retryCount + 1}/${maxIframeRetries})...`);
+                        setTimeout(() => step7(retryCount + 1), 5000); // Retry after 5 seconds
+                    } else {
+                        console.error("Max retries reached or other error, proceeding to step6 anyway...");
+                        showToast("Error: Could not load next week. Proceeding anyway...");
+                        setTimeout(() => {
+                            isBusy = false; // Clear busy flag
+                            step6();
+                        }, minWaitAfterLoad);
+                    }
+                });
+        } else {
+            console.log("Next week button not found or seat found, retrying...");
+            setTimeout(() => step7(retryCount), 2000); // Retry after 2 seconds if button is missing
+        }
+    }
+
+    function goToPreviousWeek(retryCount = 0) {
+        if (!isScriptRunning) {
+            console.log("Script is stopped, skipping goToPreviousWeek.");
+            return;
+        }
+
+        if (isPopupVisible) {
+            console.log("Script paused due to popup. Please dismiss the pop-up manually.");
+            return;
+        }
+
+        if (isBusy) {
+            console.log("Script is busy, waiting before proceeding to goToPreviousWeek...");
+            setTimeout(() => goToPreviousWeek(retryCount), 2000);
+            return;
+        }
+
+        console.log("Attempting to go to previous week...");
+        const previousWeekButton = document.querySelector('#searchForWeeklySlotsPreviousWeek');
+        if (previousWeekButton && !foundSeat) {
+            console.log("Previous week button found, attempting click...");
+            if (checkForPopup()) return; // Check popup before clicking
+
+            isBusy = true; // Set busy flag to prevent overlapping actions
+            previousWeekButton.click();
+            console.log("Clicked on previous week button");
+            showToast("Checking availability for previous week...");
+
+            // Wait for both the calendar and main-iframe to ensure the page is fully loaded
+            Promise.all([
+                waitForElement('.day.none, .day.nonenonotif, .slotsavailable', 15000),
+                waitForElement('#main-iframe', 15000)
+            ])
+                .then(([calendar, iframe]) => {
+                    console.log("Calendar and main-iframe updated, waiting additional time before proceeding...");
+                    console.log("Main iframe element:", iframe);
+                    setTimeout(() => {
+                        console.log("Proceeding to step6...");
+                        isBusy = false; // Clear busy flag
+                        step6();
+                    }, minWaitAfterLoad);
+                })
+                .catch((err) => {
+                    console.error("Failed to load calendar or main-iframe after clicking previous week:", err);
+                    if (retryCount < maxIframeRetries && err.message.includes("main-iframe")) {
+                        console.log(`Retrying (${retryCount + 1}/${maxIframeRetries}) due to missing main-iframe...`);
+                        showToast(`Retrying due to missing main-iframe (${retryCount + 1}/${maxIframeRetries})...`);
+                        setTimeout(() => goToPreviousWeek(retryCount + 1), 5000); // Retry after 5 seconds
+                    } else {
+                        console.error("Max retries reached or other error, proceeding to step6 anyway...");
+                        showToast("Error: Could not load previous week. Proceeding anyway...");
+                        setTimeout(() => {
+                            isBusy = false; // Clear busy flag
+                            step6();
+                        }, minWaitAfterLoad);
+                    }
+                });
+        } else {
+            console.log("Previous week button not found or seat found, switching to forward...");
+            searchDirection = "forward";
+            currentWeekIndex = 0;
+            backwardWeekIndex = 0;
+            setTimeout(step7, navigationDelay); // Add delay before switching direction
+        }
+    }
+
+    function startSearch() {
+        if (!isScriptRunning) {
+            console.log("Script is stopped, skipping startSearch.");
+            return;
+        }
+
+        console.log("Starting search...");
+        currentWeekIndex = 0;
+        backwardWeekIndex = 0;
+        searchDirection = "forward";
+        foundSeat = false;
+        step6(); // Kick off the search
+    }
+
+    // Popup check function
+    function checkForPopup() {
+        const popup = document.querySelector('.ui-dialog.ui-corner-all.ui-widget.ui-widget-content.ui-front');
+        if (popup) {
+            const popupText = popup.textContent || popup.innerText;
+            if (popupText.includes("Currently no tests are available")) {
+                isPopupVisible = false;
+                return false;
+            }
+            const isVisible = window.getComputedStyle(popup).display !== 'none' && window.getComputedStyle(popup).visibility !== 'hidden';
+            if (isVisible) {
+                console.log("Blocking popup detected. Pausing the script...");
+                showToast("Blocking popup detected. Please dismiss it manually.");
+                isPopupVisible = true;
+                return true;
+            }
+        }
+        if (isPopupVisible) {
+            console.log("Popup dismissed, resuming script...");
+            isPopupVisible = false;
+            step6(); // Resume where it left off
+        }
+        return false;
+    }
+
+    // Add keyboard shortcut to stop the script (Ctrl + Shift + S)
+    document.addEventListener('keydown', (event) => {
+        if (event.ctrlKey && event.shiftKey && event.key === 'S') {
+            stopScript();
+            event.preventDefault(); // Prevent default browser behavior
+        }
+    });
+
+    // Start the script
+    window.addEventListener('load', () => {
+        console.log("Page loaded, starting script...");
+        randomDelay(startSearch);
+    });
+
+    setInterval(checkForPopup, 1000); // Check for popup every second
+
+    // Toast styles
+    (function createToastContainer() {
+        const style = document.createElement('style');
+        style.innerHTML = `
+            .toast {
+                visibility: hidden;
+                min-width: 250px;
+                margin-left: -125px;
+                background-color: #333;
+                color: #fff;
+                text-align: center;
+                border-radius: 2px;
+                padding: 16px;
+                position: fixed;
+                z-index: 10000;
+                left: 50%;
+                bottom: 30px;
+                font-size: 17px;
+            }
+            .toast.show {
+                visibility: visible;
+                -webkit-animation: fadein 0.5s, fadeout 0.5s 2.5s;
+                animation: fadein 0.5s, fadeout 0.5s 2.5s;
+            }
+            @-webkit-keyframes fadein { from {bottom: 0; opacity: 0;} to {bottom: 30px; opacity: 1;} }
+            @keyframes fadein { from {bottom: 0; opacity: 0;} to {bottom: 30px; opacity: 1;} }
+            @-webkit-keyframes fadeout { from {bottom: 30px; opacity: 1;} to {bottom: 0; opacity: 0;} }
+            @keyframes fadeout { from {bottom: 30px; opacity: 1;} to {bottom: 0; opacity: 0;} }
+        `;
+        document.head.appendChild(style);
+    })();
+})();
