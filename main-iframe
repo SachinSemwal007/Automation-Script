@@ -16,6 +16,8 @@
     const maxDelay = 10000;
     const nextWeekDelay = 4000;
     const weeksToSearch = 4; // Number of weeks to search forward AND backward (configurable)
+    const minWaitAfterLoad = 3000; // Minimum wait time (in ms) after elements are detected
+    const navigationDelay = 5000; // Additional delay (in ms) between week navigations to slow down the script
     let currentWeekIndex = 0; // Tracks the current week in the forward direction
     let backwardWeekIndex = 0; // Tracks the current week in the backward direction
     let searchDirection = "forward"; // "forward" or "backward"
@@ -148,21 +150,21 @@
             if (searchDirection === "forward" && currentWeekIndex < weeksToSearch - 1) {
                 console.log("Moving to next week forward...");
                 currentWeekIndex++;
-                step7();
+                setTimeout(step7, navigationDelay); // Add delay before moving to next week
             } else if (searchDirection === "forward" && currentWeekIndex === weeksToSearch - 1) {
                 console.log("Reached end of forward search, switching to backward...");
                 searchDirection = "backward";
                 backwardWeekIndex = 0; // Start backward from the current point
-                goToPreviousWeek();
+                setTimeout(goToPreviousWeek, navigationDelay); // Add delay before switching direction
             } else if (searchDirection === "backward" && backwardWeekIndex < weeksToSearch - 1) {
                 console.log("Moving to previous week backward...");
                 backwardWeekIndex++;
-                goToPreviousWeek();
+                setTimeout(goToPreviousWeek, navigationDelay); // Add delay before moving to previous week
             } else if (searchDirection === "backward" && backwardWeekIndex === weeksToSearch - 1) {
                 console.log("Reached end of backward search, looping back to forward...");
                 searchDirection = "forward";
                 currentWeekIndex = 0; // Reset to start forward again
-                step7();
+                setTimeout(step7, navigationDelay); // Add delay before looping back
             }
         }
     }
@@ -191,8 +193,12 @@
             // Wait for the calendar to update or main-iframe to load
             waitForElement('.day.none, .day.nonenonotif, .slotsavailable', 15000)
                 .then(() => {
-                    console.log("Calendar updated, proceeding to step6...");
-                    setTimeout(step6, 1000); // Small additional delay to ensure DOM is fully settled
+                    console.log("Calendar updated, waiting additional time before proceeding...");
+                    // Add a minimum wait time after elements are detected
+                    setTimeout(() => {
+                        console.log("Proceeding to step6...");
+                        step6();
+                    }, minWaitAfterLoad);
                 })
                 .catch((err) => {
                     console.error("Failed to load calendar after clicking next week:", err);
@@ -228,8 +234,12 @@
             // Wait for the calendar to update or main-iframe to load
             waitForElement('.day.none, .day.nonenonotif, .slotsavailable', 15000)
                 .then(() => {
-                    console.log("Calendar updated, proceeding to step6...");
-                    setTimeout(step6, 1000); // Small additional delay to ensure DOM is fully settled
+                    console.log("Calendar updated, waiting additional time before proceeding...");
+                    // Add a minimum wait time after elements are detected
+                    setTimeout(() => {
+                        console.log("Proceeding to step6...");
+                        step6();
+                    }, minWaitAfterLoad);
                 })
                 .catch((err) => {
                     console.error("Failed to load calendar after clicking previous week:", err);
@@ -241,7 +251,7 @@
             searchDirection = "forward";
             currentWeekIndex = 0;
             backwardWeekIndex = 0;
-            step7(); // Loop back to forward if no previous week available
+            setTimeout(step7, navigationDelay); // Add delay before switching direction
         }
     }
 
