@@ -177,6 +177,8 @@
         }
     }
 
+step6()
+
     function step7(retryCount = 0) {
         if (!isScriptRunning) {
             console.log("Script is stopped, skipping step7.");
