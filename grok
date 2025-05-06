@@ -11,6 +11,7 @@
 (function () {
     'use strict';
 
+
     console.log("Script Loaded and Running");
 
     const minDelay = 5000;
