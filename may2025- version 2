@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         DVSA Driving Test Booking Automation (Debug 3.2-optimized)
+// @name         DVSA Driving Test Booking Automation (Debug 3.3-optimized)
 // @namespace    http://tampermonkey.net/
-// @version      3.2-optimized
-// @description  Added restart functionality with Ctrl+Shift+R, enhanced accuracy, speed, and anti-detection
+// @version      3.3-optimized
+// @description  Restart functionality with Ctrl+Shift+R, no page refresh, enhanced accuracy, speed, and anti-detection
 // @include      https://driver-services.dvsa.gov.uk/*
 // @grant        none
 // ==/UserScript==
@@ -28,7 +28,7 @@
 
     window.stopScript = function () {
         isScriptRunning = false;
-        console.log("Script stopped manually. Press Ctrl+Shift+R to restart, or reload the page.");
+        console.log("Script stopped manually. Press Ctrl+Shift+R to restart.");
         showToast("Script stopped. Press Ctrl+Shift+R to restart.");
     };
 
@@ -38,7 +38,7 @@
             showToast("Script already running!");
             return;
         }
-        console.log("Restarting script...");
+        console.log("Restarting script without page refresh...");
         isScriptRunning = true;
         isPopupVisible = false;
         isBusy = false;
