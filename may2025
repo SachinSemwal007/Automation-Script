@@ -1,0 +1,371 @@
+// ==UserScript==
+// @name         DVSA Driving Test Booking Automation (Debug 3.0-optimized)
+// @namespace    http://tampermonkey.net/
+// @version      3.0-optimized
+// @description  Optimized version with faster execution, robust error handling, and improved popup management
+// @include      https://driver-services.dvsa.gov.uk/*
+// @grant        none
+// ==/UserScript==
+
+(function () {
+    'use strict';
+
+    console.log("Script Loaded and Running");
+
+    const minDelay = 3000; // Reduced for faster execution
+    const maxDelay = 6000; // Adjusted for reliability
+    const navigationDelay = 3000; // Reduced delay between week navigations
+    const weeksToSearch = 4; // Number of weeks to search forward AND backward
+    const minWaitAfterLoad = 3000; // Reduced wait time after page load
+    let currentWeekIndex = 0;
+    let backwardWeekIndex = 0;
+    let searchDirection = "forward";
+    let foundSeat = false;
+    let isPopupVisible = false;
+    let isScriptRunning = true;
+    let isBusy = false;
+
+    // Function to stop the script
+    window.stopScript = function () {
+        isScriptRunning = false;
+        console.log("Script stopped manually. Reload the page or call startSearch() to restart.");
+        showToast("Script stopped manually.");
+    };
+
+    function randomIntBetween(min, max) {
+        return Math.floor(Math.random() * (max - min + 1)) + min;
+    }
+
+    function randomDelay(callback) {
+        const delay = randomIntBetween(minDelay, maxDelay);
+        console.log(`Delaying for ${delay}ms`);
+        setTimeout(callback, delay);
+    }
+
+    function showToast(message) {
+        const toast = document.createElement('div');
+        toast.className = 'toast';
+        toast.textContent = message;
+        document.body.appendChild(toast);
+        setTimeout(() => toast.classList.add('show'), 10);
+        setTimeout(() => {
+            toast.classList.remove('show');
+            setTimeout(() => toast.remove(), 300);
+        }, 3000);
+    }
+
+    function getWeekRange() {
+        const today = new Date();
+        const startDate = today.toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' });
+        const [day, month, year] = startDate.split(' ');
+        return { startDate, day, month, year };
+    }
+
+    function waitForElement(selector, timeout = 10000) {
+        return new Promise((resolve, reject) => {
+            const element = document.querySelector(selector);
+            if (element) {
+                resolve(element);
+                return;
+            }
+
+            const observer = new MutationObserver((mutations, obs) => {
+                const el = document.querySelector(selector);
+                if (el) {
+                    obs.disconnect();
+                    resolve(el);
+                }
+            });
+
+            observer.observe(document.body, { childList: true, subtree: true });
+
+            setTimeout(() => {
+                observer.disconnect();
+                reject(new Error(`Element ${selector} not found within ${timeout}ms`));
+            }, timeout);
+        });
+    }
+
+    function step6() {
+        if (!isScriptRunning) {
+            console.log("Script stopped, skipping step6.");
+            return;
+        }
+
+        if (isPopupVisible) {
+            console.log("Paused due to popup. Awaiting manual dismissal.");
+            return;
+        }
+
+        if (isBusy) {
+            console.log("Script busy, retrying step6...");
+            setTimeout(step6, 1000);
+            return;
+        }
+
+        isBusy = true;
+        console.log(`Step 6 - Week ${searchDirection === "forward" ? currentWeekIndex + 1 : backwardWeekIndex + 1}/${weeksToSearch}, Direction: ${searchDirection}`);
+
+        const weekRange = getWeekRange();
+        if (!weekRange) {
+            console.error("Failed to determine week range");
+            isBusy = false;
+            randomDelay(step6);
+            return;
+        }
+
+        const { day, month, year } = weekRange;
+        const dateCells = document.querySelectorAll('.day.none, .day.nonenonotif, .slotsavailable');
+        console.log(`Found ${dateCells.length} date cells`);
+
+        let availableDates = [];
+        dateCells.forEach(cell => {
+            if (cell.classList.contains('slotsavailable')) {
+                const dateLink = cell.querySelector('a');
+                if (dateLink) {
+                    const dateText = dateLink.textContent.trim();
+                    if (dateText && !isNaN(parseInt(dateText))) {
+                        const parsedDate = new Date(`${dateText} ${month} ${year}`);
+                        if (!isNaN(parsedDate.getTime())) {
+                            availableDates.push({
+                                day: parsedDate.toLocaleString('en-US', { weekday: 'long' }),
+                                date: dateText
+                            });
+                        }
+                    }
+                }
+            }
+        });
+
+        if (availableDates.length > 0) {
+            foundSeat = true;
+            const formattedDates = availableDates.map(({ day, date }) => `${day}, ${date} ${month} ${year}`);
+            console.log("Available dates:", formattedDates);
+            showToast("Seat available!");
+            isBusy = false;
+            return;
+        }
+
+        console.log("No available dates found");
+        showToast("No dates available");
+
+        if (!foundSeat) {
+            if (searchDirection === "forward" && currentWeekIndex < weeksToSearch - 1) {
+                currentWeekIndex++;
+                randomDelay(step7);
+            } else if (searchDirection === "forward" && currentWeekIndex === weeksToSearch - 1) {
+                searchDirection = "backward";
+                backwardWeekIndex = 0;
+                randomDelay(goToPreviousWeek);
+            } else if (searchDirection === "backward" && backwardWeekIndex < weeksToSearch - 1) {
+                backwardWeekIndex++;
+                randomDelay(goToPreviousWeek);
+            } else {
+                searchDirection = "forward";
+                currentWeekIndex = 0;
+                backwardWeekIndex = 0;
+                randomDelay(step7);
+            }
+        }
+        isBusy = false;
+    }
+
+    function step7() {
+        if (!isScriptRunning) {
+            console.log("Script stopped, skipping step7.");
+            return;
+        }
+
+        if (isPopupVisible) {
+            console.log("Paused due to popup. Awaiting manual dismissal.");
+            return;
+        }
+
+        if (isBusy) {
+            console.log("Script busy, retrying step7...");
+            setTimeout(step7, 1000);
+            return;
+        }
+
+        isBusy = true;
+        console.log(`Step 7 - Direction: ${searchDirection}`);
+        const nextWeekLink = document.querySelector('#searchForWeeklySlotsNextWeek');
+
+        if (nextWeekLink && !foundSeat) {
+            if (checkForPopup()) {
+                isBusy = false;
+                return;
+            }
+
+            nextWeekLink.click();
+            console.log("Clicked next week link");
+            showToast("Checking next week...");
+
+            Promise.all([
+                waitForElement('.day.none, .day.nonenonotif, .slotsavailable', 10000),
+                waitForElement('#main-iframe', 10000).catch(() => null)
+            ])
+                .then(() => {
+                    console.log("Calendar updated, proceeding...");
+                    setTimeout(step6, minWaitAfterLoad);
+                })
+                .catch((err) => {
+                    console.error("Failed to load calendar:", err);
+                    showToast("Error loading next week. Retrying...");
+                    setTimeout(step7, minDelay);
+                })
+                .finally(() => {
+                    isBusy = false;
+                });
+        } else {
+            console.log("Next week button missing or seat found");
+            isBusy = false;
+            randomDelay(step7);
+        }
+    }
+
+    function goToPreviousWeek() {
+        if (!isScriptRunning) {
+            console.log("Script stopped, skipping goToPreviousWeek.");
+            return;
+        }
+
+        if (isPopupVisible) {
+            console.log("Paused due to popup. Awaiting manual dismissal.");
+            return;
+        }
+
+        if (isBusy) {
+            console.log("Script busy, retrying goToPreviousWeek...");
+            setTimeout(goToPreviousWeek, 1000);
+            return;
+        }
+
+        isBusy = true;
+        console.log("Navigating to previous week...");
+        const previousWeekButton = document.querySelector('#searchForWeeklySlotsPreviousWeek');
+
+        if (previousWeekButton && !foundSeat) {
+            if (checkForPopup()) {
+                isBusy = false;
+                return;
+            }
+
+            previousWeekButton.click();
+            console.log("Clicked previous week button");
+            showToast("Checking previous week...");
+
+            Promise.all([
+                waitForElement('.day.none, .day.nonenonotif, .slotsavailable', 10000),
+                waitForElement('#main-iframe', 10000).catch(() => null)
+            ])
+                .then(() => {
+                    console.log("Calendar updated, proceeding...");
+                    setTimeout(step6, minWaitAfterLoad);
+                })
+                .catch((err) => {
+                    console.error("Failed to load calendar:", err);
+                    showToast("Error loading previous week. Retrying...");
+                    setTimeout(goToPreviousWeek, minDelay);
+                })
+                .finally(() => {
+                    isBusy = false;
+                });
+        } else {
+            console.log("Previous week button missing or seat found, switching to forward...");
+            searchDirection = "forward";
+            currentWeekIndex = 0;
+            backwardWeekIndex = 0;
+            randomDelay(step7);
+            isBusy = false;
+        }
+    }
+
+    function startSearch() {
+        if (!isScriptRunning) {
+            console.log("Script stopped, skipping startSearch.");
+            return;
+        }
+
+        console.log("Starting search...");
+        currentWeekIndex = 0;
+        backwardWeekIndex = 0;
+        searchDirection = "forward";
+        foundSeat = false;
+        randomDelay(step6);
+    }
+
+    function checkForPopup() {
+        const popup = document.querySelector('.ui-dialog.ui-corner-all.ui-widget.ui-widget-content.ui-front');
+        if (popup) {
+            const popupText = popup.textContent || popup.innerText;
+            if (popupText.includes("Currently no tests are available")) {
+                const closeButton = popup.querySelector('.ui-button.ui-corner-all.ui-widget');
+                if (closeButton) {
+                    closeButton.click();
+                    console.log("Auto-closed 'no tests available' popup");
+                    isPopupVisible = false;
+                    return false;
+                }
+            }
+            const isVisible = window.getComputedStyle(popup).display !== 'none' && window.getComputedStyle(popup).visibility !== 'hidden';
+            if (isVisible) {
+                console.log("Blocking popup detected. Pausing...");
+                showToast("Blocking popup detected. Please dismiss manually.");
+                isPopupVisible = true;
+                return true;
+            }
+        }
+        if (isPopupVisible) {
+            console.log("Popup dismissed, resuming...");
+            isPopupVisible = false;
+            randomDelay(step6);
+        }
+        return false;
+    }
+
+    document.addEventListener('keydown', (event) => {
+        if (event.ctrlKey && event.shiftKey && event.key === 'S') {
+            stopScript();
+            event.preventDefault();
+        }
+    });
+
+    window.addEventListener('load', () => {
+        console.log("Page loaded, starting script...");
+        randomDelay(startSearch);
+    });
+
+    setInterval(checkForPopup, 2000); // Reduced frequency to save resources
+
+    (function createToastContainer() {
+        const style = document.createElement('style');
+        style.innerHTML = `
+            .toast {
+                visibility: hidden;
+                min-width: 250px;
+                margin-left: -125px;
+                background-color: #333;
+                color: #fff;
+                text-align: center;
+                border-radius: 2px;
+                padding: 16px;
+                position: fixed;
+                z-index: 10000;
+                left: 50%;
+                bottom: 30px;
+                font-size: 17px;
+            }
+            .toast.show {
+                visibility: visible;
+                -webkit-animation: fadein 0.5s, fadeout 0.5s 2.5s;
+                animation: fadein 0.5s, fadeout 0.5s 2.5s;
+            }
+            @-webkit-keyframes fadein { from {bottom: 0; opacity: 0;} to {bottom: 30px; opacity: 1;} }
+            @keyframes fadein { from {bottom: 0; opacity: 0;} to {bottom: 30px; opacity: 1;} }
+            @-webkit-keyframes fadeout { from {bottom: 30px; opacity: 1;} to {bottom: 0; opacity: 0;} }
+            @keyframes fadeout { from {bottom: 30px; opacity: 1;} to {bottom: 0; opacity: 0;} }
+        `;
+        document.head.appendChild(style);
+    })();
+})();
