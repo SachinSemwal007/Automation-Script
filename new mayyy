@@ -1,0 +1,498 @@
+// ==UserScript==
+// @name         DVSA Driving Test Booking Automation (Debug 3.1.8-optimized)
+// @namespace    http://tampermonkey.net/
+// @version      3.1.8-optimized
+// @description  Automates DVSA driving test booking with updated date cell selector, restart without page refresh (Ctrl+Shift+R), improved Ctrl+R handling, popup detection with timeout, and auto-click on first available date. Stops with Ctrl+Shift+S.
+// @include      https://driver-services.dvsa.gov.uk/*
+// @grant        none
+// ==/UserScript==
+
+(function () {
+    'use strict';
+
+    console.log("Script Loaded and Running");
+
+    const minDelay = 2000;
+    const maxDelay = 5000;
+    const navigationDelay = 2500;
+    const weeksToSearch = 4;
+    const minWaitAfterLoad = 2000;
+    const popupTimeout = 30000; // 30 seconds timeout for popup dismissal
+    let currentWeekIndex = 0;
+    let backwardWeekIndex = 0;
+    let searchDirection = "forward";
+    let foundSeat = false;
+    let isPopupVisible = false;
+    let isScriptRunning = true;
+    let isBusy = false;
+    let lastNavigationTime = Date.now();
+    let popupTimer = null;
+
+    window.stopScript = function () {
+        isScriptRunning = false;
+        console.log("Script stopped manually. Press Ctrl+Shift+R to restart.");
+        showToast("Script stopped. Press Ctrl+Shift+R to restart.");
+        if (popupTimer) clearTimeout(popupTimer);
+    };
+
+    window.restartScript = function () {
+        console.log("Restarting script without page refresh...");
+        isScriptRunning = true;
+        isPopupVisible = false;
+        isBusy = false;
+        currentWeekIndex = 0;
+        backwardWeekIndex = 0;
+        searchDirection = "forward";
+        foundSeat = false;
+        lastNavigationTime = Date.now();
+        if (popupTimer) clearTimeout(popupTimer);
+        showToast("Script restarted!");
+        randomDelay(startSearch);
+    };
+
+    function randomIntBetween(min, max) {
+        const mean = (max + min) / 2;
+        const stdDev = (max - min) / 6;
+        let value;
+        do {
+            value = mean + stdDev * (Math.random() * 2 - 1) * 2;
+        } while (value < min || value > max);
+        return Math.floor(value);
+    }
+
+    function randomDelay(callback) {
+        const delay = randomIntBetween(minDelay, maxDelay);
+        console.log(`Delaying for ${delay}ms`);
+        setTimeout(callback, delay);
+    }
+
+    function showToast(message) {
+        const toast = document.createElement('div');
+        toast.className = 'toast';
+        toast.textContent = message;
+        document.body.appendChild(toast);
+        setTimeout(() => toast.classList.add('show'), 10);
+        setTimeout(() => {
+            toast.classList.remove('show');
+            setTimeout(() => toast.remove(), 300);
+        }, 3000);
+    }
+
+    function getWeekRange() {
+        const today = new Date();
+        const startDate = today.toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' });
+        const [day, month, year] = startDate.split(' ');
+        return { startDate, day, month, year };
+    }
+
+    function waitForElement(selector, timeout = 8000) {
+        return new Promise((resolve, reject) => {
+            const element = document.querySelector(selector);
+            if (element) {
+                resolve(element);
+                return;
+            }
+
+            let observer;
+            try {
+                observer = new MutationObserver((mutations, obs) => {
+                    const el = document.querySelector(selector);
+                    if (el) {
+                        obs.disconnect();
+                        resolve(el);
+                    }
+                });
+
+                observer.observe(document.body, { childList: true, subtree: true });
+
+                const onPageChange = () => {
+                    observer.disconnect();
+                    reject(new Error(`Page navigation detected while waiting for ${selector}`));
+                };
+                window.addEventListener('beforeunload', onPageChange, { once: true });
+
+                setTimeout(() => {
+                    observer.disconnect();
+                    window.removeEventListener('beforeunload', onPageChange);
+                    reject(new Error(`Element ${selector} not found within ${timeout}ms`));
+                }, timeout);
+            } catch (err) {
+                if (observer) observer.disconnect();
+                reject(err);
+            }
+        });
+    }
+
+    function step6() {
+        if (!isScriptRunning) {
+            console.log("Script stopped, skipping step6.");
+            return;
+        }
+
+        if (isPopupVisible) {
+            console.log("Paused due to popup. Awaiting manual dismissal.");
+            return;
+        }
+
+        if (isBusy) {
+            console.log("Script busy, retrying step6...");
+            setTimeout(step6, 1000);
+            return;
+        }
+
+        isBusy = true;
+        console.log(`Step 6 - Week ${searchDirection === "forward" ? currentWeekIndex + 1 : backwardWeekIndex + 1}/${weeksToSearch}, Direction: ${searchDirection}`);
+        console.log(`State - isBusy: ${isBusy}, isScriptRunning: ${isScriptRunning}, isPopupVisible: ${isPopupVisible}`);
+
+        const weekRange = getWeekRange();
+        if (!weekRange) {
+            console.error("Failed to determine week range");
+            isBusy = false;
+            randomDelay(step6);
+            return;
+        }
+
+        const { day, month, year } = weekRange;
+        let dateCells;
+        try {
+            dateCells = document.querySelectorAll('.day.none, .day.nonenonotif, .slotsavailable');
+            console.log(`Found ${dateCells.length} date cells with primary selector`);
+            if (dateCells.length === 0) {
+                console.log("No date cells found with primary selector, trying fallback...");
+                dateCells = document.querySelectorAll('td.day');
+                console.log(`Fallback: Found ${dateCells.length} date cells`);
+            }
+        } catch (err) {
+            console.error("Error querying date cells:", err);
+            isBusy = false;
+            randomDelay(step6);
+            return;
+        }
+
+        if (dateCells.length === 0) {
+            console.log("No date cells found, retrying after delay...");
+            isBusy = false;
+            setTimeout(step6, minWaitAfterLoad);
+            return;
+        }
+
+        for (let cell of dateCells) {
+            if (cell.classList.contains('slotsavailable')) {
+                const dateLink = cell.querySelector('a');
+                if (dateLink) {
+                    const dateText = dateLink.textContent.trim();
+                    if (dateText && !isNaN(parseInt(dateText))) {
+                        const parsedDate = new Date(`${dateText} ${month} ${year}`);
+                        if (!isNaN(parsedDate.getTime())) {
+                            foundSeat = true;
+                            console.log(`Found available date: ${parsedDate.toLocaleString('en-US', { weekday: 'long' })}, ${dateText} ${month} ${year}`);
+                            showToast(`Found available date: ${dateText} ${month} ${year}. Clicking to book...`);
+                            dateLink.click();
+                            isBusy = false;
+                            return;
+                        }
+                    }
+                }
+            }
+        }
+
+        console.log("No available dates found");
+        showToast("No dates available");
+
+        if (!foundSeat) {
+            if (searchDirection === "forward" && currentWeekIndex < weeksToSearch - 1) {
+                currentWeekIndex++;
+                randomDelay(step7);
+            } else if (searchDirection === "forward" && currentWeekIndex === weeksToSearch - 1) {
+                searchDirection = "backward";
+                backwardWeekIndex = 0;
+                randomDelay(goToPreviousWeek);
+            } else if (searchDirection === "backward" && backwardWeekIndex < weeksToSearch - 1) {
+                backwardWeekIndex++;
+                randomDelay(goToPreviousWeek);
+            } else {
+                searchDirection = "forward";
+                currentWeekIndex = 0;
+                backwardWeekIndex = 0;
+                randomDelay(step7);
+            }
+        }
+        isBusy = false;
+    }
+
+    function step7() {
+        if (!isScriptRunning) {
+            console.log("Script stopped, skipping step7.");
+            return;
+        }
+
+        if (isPopupVisible) {
+            console.log("Paused due to popup. Awaiting manual dismissal.");
+            return;
+        }
+
+        if (isBusy) {
+            console.log("Script busy, retrying step7...");
+            setTimeout(step7, 1000);
+            return;
+        }
+
+        const timeSinceLastNav = Date.now() - lastNavigationTime;
+        if (timeSinceLastNav < navigationDelay) {
+            console.log(`Waiting ${navigationDelay - timeSinceLastNav}ms to avoid rapid navigation`);
+            setTimeout(step7, navigationDelay - timeSinceLastNav);
+            return;
+        }
+
+        isBusy = true;
+        console.log(`Step 7 - Direction: ${searchDirection}`);
+        console.log(`State - isBusy: ${isBusy}, isScriptRunning: ${isScriptRunning}, isPopupVisible: ${isPopupVisible}`);
+        let nextWeekLink;
+        try {
+            nextWeekLink = document.querySelector('#searchForWeeklySlotsNextWeek');
+        } catch (err) {
+            console.error("Error querying next week link:", err);
+            isBusy = false;
+            randomDelay(step7);
+            return;
+        }
+
+        if (nextWeekLink && !foundSeat) {
+            if (checkForPopup()) {
+                isBusy = false;
+                return;
+            }
+
+            lastNavigationTime = Date.now();
+            nextWeekLink.click();
+            console.log("Clicked next week link");
+            showToast("Checking next week...");
+
+            waitForElement('.day.none, .day.nonenonotif, .slotsavailable', 8000)
+                .then(() => {
+                    console.log("Calendar updated, proceeding...");
+                    setTimeout(step6, minWaitAfterLoad);
+                })
+                .catch((err) => {
+                    console.error("Failed to load calendar:", err);
+                    showToast("Error loading next week. Retrying...");
+                    setTimeout(step7, minDelay);
+                })
+                .finally(() => {
+                    isBusy = false;
+                });
+        } else {
+            console.log("Next week button missing or seat found");
+            isBusy = false;
+            randomDelay(step7);
+        }
+    }
+
+    function goToPreviousWeek() {
+        if (!isScriptRunning) {
+            console.log("Script stopped, skipping goToPreviousWeek.");
+            return;
+        }
+
+        if (isPopupVisible) {
+            console.log("Paused due to popup. Awaiting manual dismissal.");
+            return;
+        }
+
+        if (isBusy) {
+            console.log("Script busy, retrying goToPreviousWeek...");
+            setTimeout(goToPreviousWeek, 1000);
+            return;
+        }
+
+        const timeSinceLastNav = Date.now() - lastNavigationTime;
+        if (timeSinceLastNav < navigationDelay) {
+            console.log(`Waiting ${navigationDelay - timeSinceLastNav}ms to avoid rapid navigation`);
+            setTimeout(goToPreviousWeek, navigationDelay - timeSinceLastNav);
+            return;
+        }
+
+        isBusy = true;
+        console.log("Navigating to previous week...");
+        console.log(`State - isBusy: ${isBusy}, isScriptRunning: ${isScriptRunning}, isPopupVisible: ${isPopupVisible}`);
+        let previousWeekButton;
+        try {
+            previousWeekButton = document.querySelector('#searchForWeeklySlotsPreviousWeek');
+        } catch (err) {
+            console.error("Error querying previous week button:", err);
+            isBusy = false;
+            randomDelay(goToPreviousWeek);
+            return;
+        }
+
+        if (previousWeekButton && !foundSeat) {
+            if (checkForPopup()) {
+                isBusy = false;
+                return;
+            }
+
+            lastNavigationTime = Date.now();
+            previousWeekButton.click();
+            console.log("Clicked previous week button");
+            showToast("Checking previous week...");
+
+            waitForElement('.day.none, .day.nonenonotif, .slotsavailable', 8000)
+                .then(() => {
+                    console.log("Calendar updated, proceeding...");
+                    setTimeout(step6, minWaitAfterLoad);
+                })
+                .catch((err) => {
+                    console.error("Failed to load calendar:", err);
+                    showToast("Error loading previous week. Retrying...");
+                    setTimeout(goToPreviousWeek, minDelay);
+                })
+                .finally(() => {
+                    isBusy = false;
+                });
+        } else {
+            console.log("Previous week button missing or seat found, switching to forward...");
+            searchDirection = "forward";
+            currentWeekIndex = 0;
+            backwardWeekIndex = 0;
+            randomDelay(step7);
+            isBusy = false;
+        }
+    }
+
+    function startSearch() {
+        if (!isScriptRunning) {
+            console.log("Script stopped, skipping startSearch.");
+            return;
+        }
+
+        console.log("Starting search...");
+        currentWeekIndex = 0;
+        backwardWeekIndex = 0;
+        searchDirection = "forward";
+        foundSeat = false;
+        randomDelay(step6);
+    }
+
+    function checkForPopup() {
+        let popup;
+        try {
+            popup = document.querySelector('.ui-dialog.ui-corner-all.ui-widget.ui-widget-content.ui-front');
+        } catch (err) {
+            console.error("Error checking for popup:", err);
+            return false;
+        }
+
+        if (popup) {
+            const popupText = popup.textContent || popup.innerText;
+            console.log("Popup detected with text:", popupText);
+
+            // Auto-close known popups
+            if (
+                popupText.includes("Currently no tests are available") ||
+                popupText.includes("Too many requests") ||
+                popupText.includes("Session expired")
+            ) {
+                let closeButton;
+                try {
+                    closeButton = popup.querySelector('.ui-button.ui-corner-all.ui-widget');
+                } catch (err) {
+                    console.error("Error finding close button:", err);
+                }
+                if (closeButton) {
+                    closeButton.click();
+                    console.log("Auto-closed popup:", popupText);
+                    isPopupVisible = false;
+                    if (popupTimer) clearTimeout(popupTimer);
+                    return false;
+                }
+            }
+
+            const isVisible = window.getComputedStyle(popup).display !== 'none' && window.getComputedStyle(popup).visibility !== 'hidden';
+            if (isVisible && !isPopupVisible) {
+                console.log("Blocking popup detected. Pausing...");
+                showToast("Blocking popup detected. Please dismiss manually.");
+                isPopupVisible = true;
+
+                // Set a timeout to resume if the popup isn't dismissed
+                popupTimer = setTimeout(() => {
+                    console.log("Popup dismissal timeout reached, resuming script...");
+                    showToast("Popup timeout reached, resuming script...");
+                    isPopupVisible = false;
+                    randomDelay(step6);
+                }, popupTimeout);
+
+                return true;
+            }
+        }
+
+        if (isPopupVisible) {
+            console.log("Popup dismissed or no longer visible, resuming...");
+            isPopupVisible = false;
+            if (popupTimer) clearTimeout(popupTimer);
+            randomDelay(step6);
+        }
+        return false;
+    }
+
+    document.addEventListener('keydown', (event) => {
+        if (event.ctrlKey && event.shiftKey && event.key === 'S') {
+            stopScript();
+            event.preventDefault();
+        }
+    });
+
+    document.addEventListener('keydown', (event) => {
+        if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === 'r') {
+            console.log("Ctrl+Shift+R detected, restarting script...");
+            restartScript();
+            event.preventDefault();
+        }
+    });
+
+    document.addEventListener('keydown', (event) => {
+        if (event.ctrlKey && event.key.toLowerCase() === 'r' && !event.shiftKey) {
+            console.log("Ctrl+R detected, stopping and restarting script...");
+            stopScript();
+            restartScript();
+            event.preventDefault();
+        }
+    });
+
+    window.addEventListener('load', () => {
+        console.log("Page loaded, starting script...");
+        randomDelay(startSearch);
+    });
+
+    setInterval(checkForPopup, 3000);
+
+    (function createToastContainer() {
+        const style = document.createElement('style');
+        style.innerHTML = `
+            .toast {
+                visibility: hidden;
+                min-width: 250px;
+                margin-left: -125px;
+                background-color: #333;
+                color: #fff;
+                text-align: center;
+                border-radius: 2px;
+                padding: 16px;
+                position: fixed;
+                z-index: 10000;
+                left: 50%;
+                bottom: 30px;
+                font-size: 17px;
+            }
+            .toast.show {
+                visibility: visible;
+                -webkit-animation: fadein 0.5s, fadeout 0.5s 2.5s;
+                animation: fadein 0.5s, fadeout 0.5s 2.5s;
+            }
+            @-webkit-keyframes fadein { from {bottom: 0; opacity: 0;} to {bottom: 30px; opacity: 1;} }
+            @keyframes fadein { from {bottom: 0; opacity: 0;} to {bottom: 30px; opacity: 1;} }
+            @-webkit-keyframes fadeout { from {bottom: 30px; opacity: 1;} to {bottom: 0; opacity: 0;} }
+            @keyframes fadeout { from {bottom: 30px; opacity: 1;} to {bottom: 0; opacity: 0;} }
+        `;
+        document.head.appendChild(style);
+    })();
+})();
