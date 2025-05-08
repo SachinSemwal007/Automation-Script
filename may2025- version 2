@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         DVSA Driving Test Booking Automation (Debug 3.3-optimized)
+// @name         DVSA Driving Test Booking Automation (Debug 3.5-optimized)
 // @namespace    http://tampermonkey.net/
-// @version      3.3-optimized
-// @description  Restart functionality with Ctrl+Shift+R, no page refresh, enhanced accuracy, speed, and anti-detection
+// @version      3.5-optimized
+// @description  Fixed date cells detection, slower execution, restart with Ctrl+Shift+R, no page refresh
 // @include      https://driver-services.dvsa.gov.uk/*
 // @grant        none
 // ==/UserScript==
@@ -12,11 +12,11 @@
 
     console.log("Script Loaded and Running");
 
-    const minDelay = 2000;
-    const maxDelay = 5000;
-    const navigationDelay = 2500;
+    const minDelay = 3000;
+    const maxDelay = 7000;
+    const navigationDelay = 3500;
     const weeksToSearch = 4;
-    const minWaitAfterLoad = 2000;
+    const minWaitAfterLoad = 3000;
     let currentWeekIndex = 0;
     let backwardWeekIndex = 0;
     let searchDirection = "forward";
@@ -67,6 +67,16 @@
         setTimeout(callback, delay);
     }
 
+    function clickWithDelay(element, callback) {
+        const clickDelay = randomIntBetween(500, 1500);
+        console.log(`Waiting ${clickDelay}ms before clicking...`);
+        setTimeout(() => {
+            element.click();
+            console.log("Element clicked");
+            callback();
+        }, clickDelay);
+    }
+
     function showToast(message) {
         const toast = document.createElement('div');
         toast.className = 'toast';
@@ -86,7 +96,7 @@
         return { startDate, day, month, year };
     }
 
-    function waitForElement(selector, timeout = 8000) {
+    function waitForElement(selector, timeout = 12000) { // Increased timeout to 12s
         return new Promise((resolve, reject) => {
             const element = document.querySelector(selector);
             if (element) {
@@ -124,6 +134,16 @@
         });
     }
 
+    function getDocumentContext() {
+        const iframe = document.querySelector('#main-iframe');
+        if (iframe && iframe.contentDocument) {
+            console.log("Using iframe contentDocument for DOM queries");
+            return iframe.contentDocument;
+        }
+        console.log("Using main document for DOM queries");
+        return document;
+    }
+
     function step6() {
         if (!isScriptRunning) {
             console.log("Script stopped, skipping step6.");
@@ -137,7 +157,7 @@
 
         if (isBusy) {
             console.log("Script busy, retrying step6...");
-            setTimeout(step6, 1000);
+            setTimeout(step6, 1500);
             return;
         }
 
@@ -154,72 +174,89 @@
 
         const { day, month, year } = weekRange;
         let dateCells;
-        try {
-            dateCells = document.querySelectorAll('table.slots-table td.day:not(.not-this-month)');
-            console.log(`Found ${dateCells.length} date cells`);
-        } catch (err) {
-            console.error("Error querying date cells:", err);
-            isBusy = false;
-            randomDelay(step6);
-            return;
-        }
+        const doc = getDocumentContext();
 
-        if (dateCells.length === 0) {
-            console.log("No date cells found, retrying after delay...");
-            isBusy = false;
-            setTimeout(step6, minWaitAfterLoad);
-            return;
-        }
+        // Wait for the calendar table to ensure it's loaded
+        waitForElement('table[role="grid"]', 12000) // Wait for the calendar table
+            .then(() => {
+                try {
+                    // Updated selector to match the calendar structure in the screenshot
+                    dateCells = doc.querySelectorAll('table[role="grid"] td.day');
+                    console.log(`Found ${dateCells.length} date cells`);
+                    if (dateCells.length === 0) {
+                        console.log("No date cells found with primary selector, trying fallback...");
+                        dateCells = doc.querySelectorAll('td.day'); // Fallback selector
+                        console.log(`Fallback: Found ${dateCells.length} date cells`);
+                    }
+                } catch (err) {
+                    console.error("Error querying date cells:", err);
+                    isBusy = false;
+                    randomDelay(step6);
+                    return;
+                }
 
-        let availableDates = [];
-        dateCells.forEach(cell => {
-            const hasSlots = cell.classList.contains('slotsavailable');
-            const dateLink = cell.querySelector('a');
-            if (hasSlots && dateLink) {
-                const dateText = dateLink.textContent.trim();
-                if (dateText && !isNaN(parseInt(dateText))) {
-                    const parsedDate = new Date(`${dateText} ${month} ${year}`);
-                    if (!isNaN(parsedDate.getTime())) {
-                        availableDates.push({
-                            day: parsedDate.toLocaleString('en-US', { weekday: 'long' }),
-                            date: dateText
-                        });
+                if (dateCells.length === 0) {
+                    console.log("No date cells found, retrying after delay...");
+                    isBusy = false;
+                    setTimeout(step6, minWaitAfterLoad);
+                    return;
+                }
+
+                let availableDates = [];
+                dateCells.forEach(cell => {
+                    const hasSlots = cell.classList.contains('slotsavailable');
+                    const dateLink = cell.querySelector('a');
+                    if (hasSlots && dateLink) {
+                        const dateText = dateLink.textContent.trim();
+                        if (dateText && !isNaN(parseInt(dateText))) {
+                            const parsedDate = new Date(`${dateText} ${month} ${year}`);
+                            if (!isNaN(parsedDate.getTime())) {
+                                availableDates.push({
+                                    day: parsedDate.toLocaleString('en-US', { weekday: 'long' }),
+                                    date: dateText
+                                });
+                            }
+                        }
+                    }
+                });
+
+                if (availableDates.length > 0) {
+                    foundSeat = true;
+                    const formattedDates = availableDates.map(({ day, date }) => `${day}, ${date} ${month} ${year}`);
+                    console.log("Available dates:", formattedDates);
+                    showToast("Seat available! Click to book.");
+                    isBusy = false;
+                    return;
+                }
+
+                console.log("No available dates found");
+                showToast("No dates available");
+
+                if (!foundSeat) {
+                    if (searchDirection === "forward" && currentWeekIndex < weeksToSearch - 1) {
+                        currentWeekIndex++;
+                        randomDelay(step7);
+                    } else if (searchDirection === "forward" && currentWeekIndex === weeksToSearch - 1) {
+                        searchDirection = "backward";
+                        backwardWeekIndex = 0;
+                        randomDelay(goToPreviousWeek);
+                    } else if (searchDirection === "backward" && backwardWeekIndex < weeksToSearch - 1) {
+                        backwardWeekIndex++;
+                        randomDelay(goToPreviousWeek);
+                    } else {
+                        searchDirection = "forward";
+                        currentWeekIndex = 0;
+                        backwardWeekIndex = 0;
+                        randomDelay(step7);
                     }
                 }
-            }
-        });
-
-        if (availableDates.length > 0) {
-            foundSeat = true;
-            const formattedDates = availableDates.map(({ day, date }) => `${day}, ${date} ${month} ${year}`);
-            console.log("Available dates:", formattedDates);
-            showToast("Seat available! Click to book.");
-            isBusy = false;
-            return;
-        }
-
-        console.log("No available dates found");
-        showToast("No dates available");
-
-        if (!foundSeat) {
-            if (searchDirection === "forward" && currentWeekIndex < weeksToSearch - 1) {
-                currentWeekIndex++;
-                randomDelay(step7);
-            } else if (searchDirection === "forward" && currentWeekIndex === weeksToSearch - 1) {
-                searchDirection = "backward";
-                backwardWeekIndex = 0;
-                randomDelay(goToPreviousWeek);
-            } else if (searchDirection === "backward" && backwardWeekIndex < weeksToSearch - 1) {
-                backwardWeekIndex++;
-                randomDelay(goToPreviousWeek);
-            } else {
-                searchDirection = "forward";
-                currentWeekIndex = 0;
-                backwardWeekIndex = 0;
-                randomDelay(step7);
-            }
-        }
-        isBusy = false;
+                isBusy = false;
+            })
+            .catch(err => {
+                console.error("Failed to find calendar table:", err);
+                isBusy = false;
+                randomDelay(step6);
+            });
     }
 
     function step7() {
@@ -235,14 +272,14 @@
 
         if (isBusy) {
             console.log("Script busy, retrying step7...");
-            setTimeout(step7, 1000);
+            setTimeout(step7, 1500);
             return;
         }
 
         const timeSinceLastNav = Date.now() - lastNavigationTime;
-        if (timeSinceLastNav < minDelay) {
-            console.log(`Waiting ${minDelay - timeSinceLastNav}ms to avoid rapid navigation`);
-            setTimeout(step7, minDelay - timeSinceLastNav);
+        if (timeSinceLastNav < navigationDelay) {
+            console.log(`Waiting ${navigationDelay - timeSinceLastNav}ms to avoid rapid navigation`);
+            setTimeout(step7, navigationDelay - timeSinceLastNav);
             return;
         }
 
@@ -265,26 +302,26 @@
             }
 
             lastNavigationTime = Date.now();
-            nextWeekLink.click();
-            console.log("Clicked next week link");
             showToast("Checking next week...");
-
-            Promise.all([
-                waitForElement('table.slots-table td.day:not(.not-this-month)', 8000),
-                waitForElement('#main-iframe', 8000).catch(() => null)
-            ])
-                .then(() => {
-                    console.log("Calendar updated, proceeding...");
-                    setTimeout(step6, minWaitAfterLoad);
-                })
-                .catch((err) => {
-                    console.error("Failed to load calendar:", err);
-                    showToast("Error loading next week. Retrying...");
-                    setTimeout(step7, minDelay);
-                })
-                .finally(() => {
-                    isBusy = false;
-                });
+            clickWithDelay(nextWeekLink, () => {
+                console.log("Clicked next week link");
+                Promise.all([
+                    waitForElement('table[role="grid"] td.day', 12000),
+                    waitForElement('#main-iframe', 12000).catch(() => null)
+                ])
+                    .then(() => {
+                        console.log("Calendar updated, proceeding...");
+                        setTimeout(step6, minWaitAfterLoad);
+                    })
+                    .catch((err) => {
+                        console.error("Failed to load calendar:", err);
+                        showToast("Error loading next week. Retrying...");
+                        setTimeout(step7, minDelay);
+                    })
+                    .finally(() => {
+                        isBusy = false;
+                    });
+            });
         } else {
             console.log("Next week button missing or seat found");
             isBusy = false;
@@ -305,14 +342,14 @@
 
         if (isBusy) {
             console.log("Script busy, retrying goToPreviousWeek...");
-            setTimeout(goToPreviousWeek, 1000);
+            setTimeout(goToPreviousWeek, 1500);
             return;
         }
 
         const timeSinceLastNav = Date.now() - lastNavigationTime;
-        if (timeSinceLastNav < minDelay) {
-            console.log(`Waiting ${minDelay - timeSinceLastNav}ms to avoid rapid navigation`);
-            setTimeout(goToPreviousWeek, minDelay - timeSinceLastNav);
+        if (timeSinceLastNav < navigationDelay) {
+            console.log(`Waiting ${navigationDelay - timeSinceLastNav}ms to avoid rapid navigation`);
+            setTimeout(goToPreviousWeek, navigationDelay - timeSinceLastNav);
             return;
         }
 
@@ -335,26 +372,26 @@
             }
 
             lastNavigationTime = Date.now();
-            previousWeekButton.click();
-            console.log("Clicked previous week button");
             showToast("Checking previous week...");
-
-            Promise.all([
-                waitForElement('table.slots-table td.day:not(.not-this-month)', 8000),
-                waitForElement('#main-iframe', 8000).catch(() => null)
-            ])
-                .then(() => {
-                    console.log("Calendar updated, proceeding...");
-                    setTimeout(step6, minWaitAfterLoad);
-                })
-                .catch((err) => {
-                    console.error("Failed to load calendar:", err);
-                    showToast("Error loading previous week. Retrying...");
-                    setTimeout(goToPreviousWeek, minDelay);
-                })
-                .finally(() => {
-                    isBusy = false;
-                });
+            clickWithDelay(previousWeekButton, () => {
+                console.log("Clicked previous week button");
+                Promise.all([
+                    waitForElement('table[role="grid"] td.day', 12000),
+                    waitForElement('#main-iframe', 12000).catch(() => null)
+                ])
+                    .then(() => {
+                        console.log("Calendar updated, proceeding...");
+                        setTimeout(step6, minWaitAfterLoad);
+                    })
+                    .catch((err) => {
+                        console.error("Failed to load calendar:", err);
+                        showToast("Error loading previous week. Retrying...");
+                        setTimeout(goToPreviousWeek, minDelay);
+                    })
+                    .finally(() => {
+                        isBusy = false;
+                    });
+            });
         } else {
             console.log("Previous week button missing or seat found, switching to forward...");
             searchDirection = "forward";
@@ -398,9 +435,10 @@
                     console.error("Error finding close button:", err);
                 }
                 if (closeButton) {
-                    closeButton.click();
-                    console.log("Auto-closed 'no tests available' popup");
-                    isPopupVisible = false;
+                    clickWithDelay(closeButton, () => {
+                        console.log("Auto-closed 'no tests available' popup");
+                        isPopupVisible = false;
+                    });
                     return false;
                 }
             }
@@ -420,7 +458,6 @@
         return false;
     }
 
-    // Stop script with Ctrl+Shift+S
     document.addEventListener('keydown', (event) => {
         if (event.ctrlKey && event.shiftKey && event.key === 'S') {
             stopScript();
@@ -428,7 +465,6 @@
         }
     });
 
-    // Restart script with Ctrl+Shift+R
     document.addEventListener('keydown', (event) => {
         if (event.ctrlKey && event.shiftKey && event.key === 'R') {
             restartScript();
@@ -441,7 +477,7 @@
         randomDelay(startSearch);
     });
 
-    setInterval(checkForPopup, 3000);
+    setInterval(checkForPopup, 4000);
 
     (function createToastContainer() {
         const style = document.createElement('style');
