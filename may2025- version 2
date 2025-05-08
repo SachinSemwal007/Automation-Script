@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         DVSA Driving Test Booking Automation (Debug 3.6-optimized)
+// @name         DVSA Driving Test Booking Automation (Debug 3.7-optimized)
 // @namespace    http://tampermonkey.net/
-// @version      3.6-optimized
-// @description  Merged best of 3.1 and 3.5: reliable date cell detection, slower execution, restart with Ctrl+Shift+R
+// @version      3.7-optimized
+// @description  Removed iframe dependency, improved timing, robust date cell detection, restart with Ctrl+Shift+R
 // @include      https://driver-services.dvsa.gov.uk/*
 // @grant        none
 // ==/UserScript==
@@ -17,6 +17,7 @@
     const navigationDelay = 3500;
     const weeksToSearch = 4;
     const minWaitAfterLoad = 3000;
+    const maxCalendarRetries = 3; // Retry limit for calendar table
     let currentWeekIndex = 0;
     let backwardWeekIndex = 0;
     let searchDirection = "forward";
@@ -96,10 +97,11 @@
         return { startDate, day, month, year };
     }
 
-    function waitForElement(selector, timeout = 12000) {
+    function waitForElement(selector, timeout = 15000) { // Increased timeout to 15s
         return new Promise((resolve, reject) => {
             const element = document.querySelector(selector);
             if (element) {
+                console.log(`Element ${selector} found immediately`);
                 resolve(element);
                 return;
             }
@@ -109,6 +111,7 @@
                 observer = new MutationObserver((mutations, obs) => {
                     const el = document.querySelector(selector);
                     if (el) {
+                        console.log(`Element ${selector} found via MutationObserver`);
                         obs.disconnect();
                         resolve(el);
                     }
@@ -134,7 +137,28 @@
         });
     }
 
-    function step6() {
+    async function waitForCalendarTable(attempt = 1) {
+        if (attempt > maxCalendarRetries) {
+            throw new Error(`Failed to find calendar table after ${maxCalendarRetries} attempts`);
+        }
+
+        try {
+            console.log(`Attempt ${attempt}/${maxCalendarRetries}: Waiting for calendar table...`);
+            const table = await waitForElement('table.slots-table', 15000);
+            console.log("Calendar table found");
+            return table;
+        } catch (err) {
+            console.error(`Attempt ${attempt} failed: ${err.message}`);
+            if (attempt < maxCalendarRetries) {
+                console.log(`Retrying calendar table wait (${attempt + 1}/${maxCalendarRetries})...`);
+                await new Promise(resolve => setTimeout(resolve, minWaitAfterLoad));
+                return waitForCalendarTable(attempt + 1);
+            }
+            throw err;
+        }
+    }
+
+    async function step6() {
         if (!isScriptRunning) {
             console.log("Script stopped, skipping step6.");
             return;
@@ -165,86 +189,84 @@
         const { day, month, year } = weekRange;
         let dateCells;
 
-        // Wait for the calendar table to ensure it's loaded
-        waitForElement('table.slots-table', 12000)
-            .then(() => {
-                try {
-                    dateCells = document.querySelectorAll('table.slots-table td.day:not(.not-this-month)');
-                    console.log(`Found ${dateCells.length} date cells`);
-                    if (dateCells.length === 0) {
-                        console.log("No date cells found with primary selector, trying fallback...");
-                        dateCells = document.querySelectorAll('td.day');
-                        console.log(`Fallback: Found ${dateCells.length} date cells`);
-                    }
-                } catch (err) {
-                    console.error("Error querying date cells:", err);
-                    isBusy = false;
-                    randomDelay(step6);
-                    return;
-                }
-
+        try {
+            await waitForCalendarTable();
+            try {
+                dateCells = document.querySelectorAll('table.slots-table td.day:not(.not-this-month)');
+                console.log(`Found ${dateCells.length} date cells with primary selector`);
                 if (dateCells.length === 0) {
-                    console.log("No date cells found, retrying after delay...");
-                    isBusy = false;
-                    setTimeout(step6, minWaitAfterLoad);
-                    return;
+                    console.log("No date cells found with primary selector, trying fallback...");
+                    dateCells = document.querySelectorAll('td.day');
+                    console.log(`Fallback: Found ${dateCells.length} date cells`);
                 }
-
-                let availableDates = [];
-                dateCells.forEach(cell => {
-                    const hasSlots = cell.classList.contains('slotsavailable');
-                    const dateLink = cell.querySelector('a');
-                    if (hasSlots && dateLink) {
-                        const dateText = dateLink.textContent.trim();
-                        if (dateText && !isNaN(parseInt(dateText))) {
-                            const parsedDate = new Date(`${dateText} ${month} ${year}`);
-                            if (!isNaN(parsedDate.getTime())) {
-                                availableDates.push({
-                                    day: parsedDate.toLocaleString('en-US', { weekday: 'long' }),
-                                    date: dateText
-                                });
-                            }
-                        }
-                    }
-                });
-
-                if (availableDates.length > 0) {
-                    foundSeat = true;
-                    const formattedDates = availableDates.map(({ day, date }) => `${day}, ${date} ${month} ${year}`);
-                    console.log("Available dates:", formattedDates);
-                    showToast("Seat available! Click to book.");
-                    isBusy = false;
-                    return;
-                }
-
-                console.log("No available dates found");
-                showToast("No dates available");
-
-                if (!foundSeat) {
-                    if (searchDirection === "forward" && currentWeekIndex < weeksToSearch - 1) {
-                        currentWeekIndex++;
-                        randomDelay(step7);
-                    } else if (searchDirection === "forward" && currentWeekIndex === weeksToSearch - 1) {
-                        searchDirection = "backward";
-                        backwardWeekIndex = 0;
-                        randomDelay(goToPreviousWeek);
-                    } else if (searchDirection === "backward" && backwardWeekIndex < weeksToSearch - 1) {
-                        backwardWeekIndex++;
-                        randomDelay(goToPreviousWeek);
-                    } else {
-                        searchDirection = "forward";
-                        currentWeekIndex = 0;
-                        backwardWeekIndex = 0;
-                        randomDelay(step7);
-                    }
-                }
-                isBusy = false;
-            })
-            .catch(err => {
-                console.error("Failed to find calendar table:", err);
+            } catch (err) {
+                console.error("Error querying date cells:", err);
                 isBusy = false;
                 randomDelay(step6);
+                return;
+            }
+
+            if (dateCells.length === 0) {
+                console.log("No date cells found, retrying after delay...");
+                isBusy = false;
+                setTimeout(step6, minWaitAfterLoad);
+                return;
+            }
+
+            let availableDates = [];
+            dateCells.forEach(cell => {
+                const hasSlots = cell.classList.contains('slotsavailable');
+                const dateLink = cell.querySelector('a');
+                if (hasSlots && dateLink) {
+                    const dateText = dateLink.textContent.trim();
+                    if (dateText && !isNaN(parseInt(dateText))) {
+                        const parsedDate = new Date(`${dateText} ${month} ${year}`);
+                        if (!isNaN(parsedDate.getTime())) {
+                            availableDates.push({
+                                day: parsedDate.toLocaleString('en-US', { weekday: 'long' }),
+                                date: dateText
+                            });
+                        }
+                    }
+                }
             });
+
+            if (availableDates.length > 0) {
+                foundSeat = true;
+                const formattedDates = availableDates.map(({ day, date }) => `${day}, ${date} ${month} ${year}`);
+                console.log("Available dates:", formattedDates);
+                showToast("Seat available! Click to book.");
+                isBusy = false;
+                return;
+            }
+
+            console.log("No available dates found");
+            showToast("No dates available");
+
+            if (!foundSeat) {
+                if (searchDirection === "forward" && currentWeekIndex < weeksToSearch - 1) {
+                    currentWeekIndex++;
+                    randomDelay(step7);
+                } else if (searchDirection === "forward" && currentWeekIndex === weeksToSearch - 1) {
+                    searchDirection = "backward";
+                    backwardWeekIndex = 0;
+                    randomDelay(goToPreviousWeek);
+                } else if (searchDirection === "backward" && backwardWeekIndex < weeksToSearch - 1) {
+                    backwardWeekIndex++;
+                    randomDelay(goToPreviousWeek);
+                } else {
+                    searchDirection = "forward";
+                    currentWeekIndex = 0;
+                    backwardWeekIndex = 0;
+                    randomDelay(step7);
+                }
+            }
+            isBusy = false;
+        } catch (err) {
+            console.error("Failed to load calendar table:", err);
+            isBusy = false;
+            randomDelay(step6);
+        }
     }
 
     function step7() {
@@ -293,10 +315,7 @@
             showToast("Checking next week...");
             clickWithDelay(nextWeekLink, () => {
                 console.log("Clicked next week link");
-                Promise.all([
-                    waitForElement('table.slots-table td.day:not(.not-this-month)', 12000),
-                    waitForElement('#main-iframe', 12000).catch(() => null)
-                ])
+                waitForElement('table.slots-table td.day:not(.not-this-month)', 15000)
                     .then(() => {
                         console.log("Calendar updated, proceeding...");
                         setTimeout(step6, minWaitAfterLoad);
@@ -363,10 +382,7 @@
             showToast("Checking previous week...");
             clickWithDelay(previousWeekButton, () => {
                 console.log("Clicked previous week button");
-                Promise.all([
-                    waitForElement('table.slots-table td.day:not(.not-this-month)', 12000),
-                    waitForElement('#main-iframe', 12000).catch(() => null)
-                ])
+                waitForElement('table.slots-table td.day:not(.not-this-month)', 15000)
                     .then(() => {
                         console.log("Calendar updated, proceeding...");
                         setTimeout(step6, minWaitAfterLoad);
@@ -492,7 +508,7 @@
             }
             @-webkit-keyframes fadein { from {bottom: 0; opacity: 0;} to {bottom: 30px; opacity: 1;} }
             @keyframes fadein { from {bottom: 0; opacity: 0;} to {bottom: 30px; opacity: 1;} }
-            @-webkit@keyframes fadeout { from {bottom: 30px; opacity: 1;} to {bottom: 0; opacity: 0;} }
+            @-webkit-keyframes fadeout { from {bottom: 30px; opacity: 1;} to {bottom: 0; opacity: 0;} }
             @keyframes fadeout { from {bottom: 30px; opacity: 1;} to {bottom: 0; opacity: 0;} }
         `;
         document.head.appendChild(style);
