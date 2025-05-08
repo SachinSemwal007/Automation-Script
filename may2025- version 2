@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         DVSA Driving Test Booking Automation (Debug 3.5-optimized)
+// @name         DVSA Driving Test Booking Automation (Debug 3.6-optimized)
 // @namespace    http://tampermonkey.net/
-// @version      3.5-optimized
-// @description  Fixed date cells detection, slower execution, restart with Ctrl+Shift+R, no page refresh
+// @version      3.6-optimized
+// @description  Merged best of 3.1 and 3.5: reliable date cell detection, slower execution, restart with Ctrl+Shift+R
 // @include      https://driver-services.dvsa.gov.uk/*
 // @grant        none
 // ==/UserScript==
@@ -96,7 +96,7 @@
         return { startDate, day, month, year };
     }
 
-    function waitForElement(selector, timeout = 12000) { // Increased timeout to 12s
+    function waitForElement(selector, timeout = 12000) {
         return new Promise((resolve, reject) => {
             const element = document.querySelector(selector);
             if (element) {
@@ -134,16 +134,6 @@
         });
     }
 
-    function getDocumentContext() {
-        const iframe = document.querySelector('#main-iframe');
-        if (iframe && iframe.contentDocument) {
-            console.log("Using iframe contentDocument for DOM queries");
-            return iframe.contentDocument;
-        }
-        console.log("Using main document for DOM queries");
-        return document;
-    }
-
     function step6() {
         if (!isScriptRunning) {
             console.log("Script stopped, skipping step6.");
@@ -174,18 +164,16 @@
 
         const { day, month, year } = weekRange;
         let dateCells;
-        const doc = getDocumentContext();
 
         // Wait for the calendar table to ensure it's loaded
-        waitForElement('table[role="grid"]', 12000) // Wait for the calendar table
+        waitForElement('table.slots-table', 12000)
             .then(() => {
                 try {
-                    // Updated selector to match the calendar structure in the screenshot
-                    dateCells = doc.querySelectorAll('table[role="grid"] td.day');
+                    dateCells = document.querySelectorAll('table.slots-table td.day:not(.not-this-month)');
                     console.log(`Found ${dateCells.length} date cells`);
                     if (dateCells.length === 0) {
                         console.log("No date cells found with primary selector, trying fallback...");
-                        dateCells = doc.querySelectorAll('td.day'); // Fallback selector
+                        dateCells = document.querySelectorAll('td.day');
                         console.log(`Fallback: Found ${dateCells.length} date cells`);
                     }
                 } catch (err) {
@@ -306,7 +294,7 @@
             clickWithDelay(nextWeekLink, () => {
                 console.log("Clicked next week link");
                 Promise.all([
-                    waitForElement('table[role="grid"] td.day', 12000),
+                    waitForElement('table.slots-table td.day:not(.not-this-month)', 12000),
                     waitForElement('#main-iframe', 12000).catch(() => null)
                 ])
                     .then(() => {
@@ -376,7 +364,7 @@
             clickWithDelay(previousWeekButton, () => {
                 console.log("Clicked previous week button");
                 Promise.all([
-                    waitForElement('table[role="grid"] td.day', 12000),
+                    waitForElement('table.slots-table td.day:not(.not-this-month)', 12000),
                     waitForElement('#main-iframe', 12000).catch(() => null)
                 ])
                     .then(() => {
@@ -504,7 +492,7 @@
             }
             @-webkit-keyframes fadein { from {bottom: 0; opacity: 0;} to {bottom: 30px; opacity: 1;} }
             @keyframes fadein { from {bottom: 0; opacity: 0;} to {bottom: 30px; opacity: 1;} }
-            @-webkit-keyframes fadeout { from {bottom: 30px; opacity: 1;} to {bottom: 0; opacity: 0;} }
+            @-webkit@keyframes fadeout { from {bottom: 30px; opacity: 1;} to {bottom: 0; opacity: 0;} }
             @keyframes fadeout { from {bottom: 30px; opacity: 1;} to {bottom: 0; opacity: 0;} }
         `;
         document.head.appendChild(style);
