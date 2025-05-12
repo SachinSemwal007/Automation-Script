@@ -1,0 +1,671 @@
+// ==UserScript==
+// @name         DVSA Driving Test Date Automation (Debug 1.0.1-optimized)
+// @namespace    http://tampermonkey.net/
+// @version      1.0.1-optimized
+// @description  Automates DVSA driving test booking by navigating through available dates (Next/Previous Available Date) with updated date cell selector, restart without page refresh (Ctrl+Shift+R), improved Ctrl+R handling, popup detection with timeout, auto-click on first available date, low internet handling, main-iframe error mitigation, and session timeout handling. Stops with Ctrl+Shift+S.
+// @include      https://driver-services.dvsa.gov.uk/*
+// @grant        none
+// ==/UserScript==
+
+(function () {
+    'use strict';
+
+    console.log("Script Loaded and Running");
+
+    const minDelay = 2000;
+    const maxDelay = 5000;
+    const navigationDelay = 7000;
+    const datesToSearch = 4;
+    const minWaitAfterLoad = 2000;
+    const popupTimeout = 30000;
+    const waitForElementTimeout = 15000;
+    const maxRetries = 2;
+    const sessionRefreshInterval = 5 * 60 * 1000;
+    let currentDateIndex = 0;
+    let backwardDateIndex = 0;
+    let searchDirection = "forward";
+    let foundSeat = false;
+    let isPopupVisible = false;
+    let isScriptRunning = true;
+    let isBusy = false;
+    let lastNavigationTime = Date.now();
+    let lastSessionRefreshTime = Date.now();
+    let popupTimer = null;
+    let retryCount = 0;
+
+    window.stopScript = function () {
+        isScriptRunning = false;
+        console.log("Script stopped manually. Press Ctrl+Shift+R to restart.");
+        showToast("Script stopped. Press Ctrl+Shift+R to restart.");
+        if (popupTimer) clearTimeout(popupTimer);
+    };
+
+    window.restartScript = function () {
+        console.log("Restarting script without page refresh...");
+        isScriptRunning = true;
+        isPopupVisible = false;
+        isBusy = false;
+        currentDateIndex = 0;
+        backwardDateIndex = 0;
+        searchDirection = "forward";
+        foundSeat = false;
+        lastNavigationTime = Date.now();
+        lastSessionRefreshTime = Date.now();
+        retryCount = 0;
+        if (popupTimer) clearTimeout(popupTimer);
+        showToast("Script restarted!");
+        randomDelay(startSearch);
+    };
+
+    function randomIntBetween(min, max) {
+        const mean = (max + min) / 2;
+        const stdDev = (max - min) / 6;
+        let value;
+        do {
+            value = mean + stdDev * (Math.random() * 2 - 1) * 2;
+        } while (value < min || value > max);
+        return Math.floor(value);
+    }
+
+    function randomDelay(callback) {
+        const delay = randomIntBetween(minDelay, maxDelay);
+        console.log(`Delaying for ${delay}ms`);
+        setTimeout(callback, delay);
+    }
+
+    function showToast(message) {
+        const toast = document.createElement('div');
+        toast.className = 'toast';
+        toast.textContent = message;
+        document.body.appendChild(toast);
+        setTimeout(() => toast.classList.add('show'), 10);
+        setTimeout(() => {
+            toast.classList.remove('show');
+            setTimeout(() => toast.remove(), 300);
+        }, 3000);
+    }
+
+    function getWeekRange() {
+        const today = new Date();
+        const startDate = today.toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' });
+        const [day, month, year] = startDate.split(' ');
+        return { startDate, day, month, year };
+    }
+
+    function waitForElement(selector, timeout = waitForElementTimeout) {
+        return new Promise((resolve, reject) => {
+            console.log(`Waiting for element: ${selector}, timeout: ${timeout}ms`);
+            const element = document.querySelector(selector);
+            if (element) {
+                console.log(`Element ${selector} found immediately`);
+                resolve(element);
+                return;
+            }
+
+            let observer;
+            try {
+                observer = new MutationObserver((mutations, obs) => {
+                    const el = document.querySelector(selector);
+                    if (el) {
+                        console.log(`Element ${selector} found via MutationObserver`);
+                        obs.disconnect();
+                        resolve(el);
+                    }
+                });
+
+                observer.observe(document.body, { childList: true, subtree: true });
+
+                const onPageChange = () => {
+                    observer.disconnect();
+                    reject(new Error(`Page navigation detected while waiting for ${selector}`));
+                };
+                window.addEventListener('beforeunload', onPageChange, { once: true });
+
+                setTimeout(() => {
+                    observer.disconnect();
+                    window.removeEventListener('beforeunload', onPageChange);
+                    reject(new Error(`Element ${selector} not found within ${timeout}ms`));
+                }, timeout);
+            } catch (err) {
+                if (observer) observer.disconnect();
+                reject(err);
+            }
+        });
+    }
+
+    function waitForMainIframe(timeout = waitForElementTimeout) {
+        return new Promise((resolve, reject) => {
+            console.log(`Waiting for main-iframe, timeout: ${timeout}ms`);
+            const iframe = document.getElementById('main-iframe');
+            if (iframe) {
+                console.log("main-iframe found immediately");
+                resolve(iframe);
+                return;
+            }
+
+            let observer;
+            try {
+                observer = new MutationObserver((mutations, obs) => {
+                    const el = document.getElementById('main-iframe');
+                    if (el) {
+                        console.log("main-iframe found via MutationObserver");
+                        obs.disconnect();
+                        resolve(el);
+                    }
+                });
+
+                observer.observe(document.body, { childList: true, subtree: true });
+
+                setTimeout(() => {
+                    observer.disconnect();
+                    reject(new Error(`main-iframe not found within ${timeout}ms`));
+                }, timeout);
+            } catch (err) {
+                if (observer) observer.disconnect();
+                reject(err);
+            }
+        });
+    }
+
+    function checkForSessionTimeout() {
+        const sessionExpiredText = document.querySelector('body')?.textContent || '';
+        const loginForm = document.querySelector('input[type="password"], input[type="email"], input[type="text"][name*="username"]');
+        if (
+            sessionExpiredText.includes("Session expired") ||
+            sessionExpiredText.includes("Log in") ||
+            sessionExpiredText.includes("Please sign in") ||
+            loginForm
+        ) {
+            console.log("Session timeout or login page detected.");
+            showToast("Session expired. Please log in again and restart the script with Ctrl+Shift+R.");
+            stopScript();
+            return true;
+        }
+        return false;
+    }
+
+    function step6() {
+        if (!isScriptRunning) {
+            console.log("Script stopped, skipping step6.");
+            return;
+        }
+
+        if (isPopupVisible) {
+            console.log("Paused due to popup. Awaiting manual dismissal.");
+            return;
+        }
+
+        if (isBusy) {
+            console.log("Script busy, retrying step6...");
+            setTimeout(step6, 1000);
+            return;
+        }
+
+        if (!navigator.onLine) {
+            console.log("No internet connection detected. Pausing script...");
+            showToast("No internet connection. Script paused. Will resume when online...");
+            setTimeout(step6, 5000);
+            return;
+        }
+
+        if (checkForSessionTimeout()) {
+            isBusy = false;
+            return;
+        }
+
+        isBusy = true;
+        console.log(`Step 6 - Date Navigation ${searchDirection === "forward" ? currentDateIndex + 1 : backwardDateIndex + 1}/${datesToSearch}, Direction: ${searchDirection}`);
+        console.log(`State - isBusy: ${isBusy}, isScriptRunning: ${isScriptRunning}, isPopupVisible: ${isPopupVisible}, navigator.onLine: ${navigator.onLine}`);
+
+        const weekRange = getWeekRange();
+        if (!weekRange) {
+            console.error("Failed to determine week range");
+            isBusy = false;
+            randomDelay(step6);
+            return;
+        }
+
+        const { day, month, year } = weekRange;
+        let dateCells;
+        try {
+            dateCells = document.querySelectorAll('.day.none, .day.nonenonotif, .slotsavailable');
+            console.log(`Found ${dateCells.length} date cells with primary selector`);
+            if (dateCells.length === 0) {
+                console.log("No date cells found with primary selector, trying fallback...");
+                dateCells = document.querySelectorAll('td.day');
+                console.log(`Fallback: Found ${dateCells.length} date cells`);
+            }
+        } catch (err) {
+            console.error("Error querying date cells:", err);
+            isBusy = false;
+            randomDelay(step6);
+            return;
+        }
+
+        if (dateCells.length === 0) {
+            console.log("No date cells found, retrying after delay...");
+            isBusy = false;
+            setTimeout(step6, minWaitAfterLoad);
+            return;
+        }
+
+        for (let cell of dateCells) {
+            if (cell.classList.contains('slotsavailable')) {
+                const dateLink = cell.querySelector('a');
+                if (dateLink) {
+                    const dateText = dateLink.textContent.trim();
+                    if (dateText && !isNaN(parseInt(dateText))) {
+                        const parsedDate = new Date(`${dateText} ${month} ${year}`);
+                        if (!isNaN(parsedDate.getTime())) {
+                            foundSeat = true;
+                            console.log(`Found available date: ${parsedDate.toLocaleString('en-US', { weekday: 'long' })}, ${dateText} ${month} ${year}`);
+                            showToast(`Found available date: ${dateText} ${month} ${year}. Clicking to book...`);
+                            dateLink.click();
+                            isBusy = false;
+                            return;
+                        }
+                    }
+                }
+            }
+        }
+
+        console.log("No available dates found");
+        showToast("No dates available");
+
+        if (!foundSeat) {
+            if (searchDirection === "forward" && currentDateIndex < datesToSearch - 1) {
+                currentDateIndex++;
+                randomDelay(step7);
+            } else if (searchDirection === "forward" && currentDateIndex === datesToSearch - 1) {
+                searchDirection = "backward";
+                backwardDateIndex = 0;
+                randomDelay(goToPreviousAvailableDate);
+            } else if (searchDirection === "backward" && backwardDateIndex < datesToSearch - 1) {
+                backwardDateIndex++;
+                randomDelay(goToPreviousAvailableDate);
+            } else {
+                searchDirection = "forward";
+                currentDateIndex = 0;
+                backwardDateIndex = 0;
+                randomDelay(step7);
+            }
+        }
+        isBusy = false;
+    }
+
+    function step7() {
+        if (!isScriptRunning) {
+            console.log("Script stopped, skipping step7.");
+            return;
+        }
+
+        if (isPopupVisible) {
+            console.log("Paused due to popup. Awaiting manual dismissal.");
+            return;
+        }
+
+        if (isBusy) {
+            console.log("Script busy, retrying step7...");
+            setTimeout(step7, 1000);
+            return;
+        }
+
+        if (!navigator.onLine) {
+            console.log("No internet connection detected. Pausing script...");
+            showToast("No internet connection. Script paused. Will resume when online...");
+            setTimeout(step7, 5000);
+            return;
+        }
+
+        if (checkForSessionTimeout()) {
+            isBusy = false;
+            return;
+        }
+
+        const timeSinceLastRefresh = Date.now() - lastSessionRefreshTime;
+        if (timeSinceLastRefresh >= sessionRefreshInterval) {
+            console.log(`Session refresh interval (${sessionRefreshInterval / 1000 / 60} minutes) reached. Refreshing page...`);
+            showToast("Refreshing page to maintain session...");
+            window.location.reload();
+            return;
+        }
+
+        const timeSinceLastNav = Date.now() - lastNavigationTime;
+        if (timeSinceLastNav < navigationDelay) {
+            console.log(`Waiting ${navigationDelay - timeSinceLastNav}ms to avoid rapid navigation`);
+            setTimeout(step7, navigationDelay - timeSinceLastNav);
+            return;
+        }
+
+        isBusy = true;
+        console.log(`Step 7 - Direction: ${searchDirection}`);
+        console.log(`State - isBusy: ${isBusy}, isScriptRunning: ${isScriptRunning}, isPopupVisible: ${isPopupVisible}, navigator.onLine: ${navigator.onLine}`);
+        let nextDateLink;
+        try {
+            nextDateLink = document.querySelector('#searchForWeeklySlotsNextAvailable');
+        } catch (err) {
+            console.error("Error querying next available date link:", err);
+            isBusy = false;
+            randomDelay(step7);
+            return;
+        }
+
+        if (nextDateLink && !foundSeat) {
+            if (checkForPopup()) {
+                isBusy = false;
+                return;
+            }
+
+            console.log("Checking for main-iframe before navigation...");
+            waitForMainIframe()
+                .then(() => {
+                    lastNavigationTime = Date.now();
+                    nextDateLink.click();
+                    console.log("Clicked next available date link");
+                    showToast("Checking next available date...");
+
+                    waitForElement('.day.none, .day.nonenonotif, .slotsavailable', waitForElementTimeout)
+                        .then(() => {
+                            console.log("Date slots updated, proceeding...");
+                            retryCount = 0;
+                            setTimeout(step6, minWaitAfterLoad);
+                        })
+                        .catch((err) => {
+                            console.error("Failed to load date slots:", err);
+                            showToast("Error loading next available date. Retrying...");
+                            retryCount++;
+                            if (retryCount >= maxRetries) {
+                                console.log(`Max retries (${maxRetries}) reached. Possible session issue. Refreshing page...`);
+                                showToast("Navigation failed. Refreshing page to reset session...");
+                                lastSessionRefreshTime = Date.now();
+                                window.location.reload();
+                            } else {
+                                setTimeout(step7, minDelay);
+                            }
+                        })
+                        .finally(() => {
+                            isBusy = false;
+                        });
+                })
+                .catch((err) => {
+                    console.error("Failed to find main-iframe:", err);
+                    showToast("Error: main-iframe not found. Retrying...");
+                    isBusy = false;
+                    setTimeout(step7, minDelay);
+                });
+        } else {
+            console.log("Next available date button missing or seat found");
+            isBusy = false;
+            randomDelay(step7);
+        }
+    }
+
+    function goToPreviousAvailableDate() {
+        if (!isScriptRunning) {
+            console.log("Script stopped, skipping goToPreviousAvailableDate.");
+            return;
+        }
+
+        if (isPopupVisible) {
+            console.log("Paused due to popup. Awaiting manual dismissal.");
+            return;
+        }
+
+        if (isBusy) {
+            console.log("Script busy, retrying goToPreviousAvailableDate...");
+            setTimeout(goToPreviousAvailableDate, 1000);
+            return;
+        }
+
+        if (!navigator.onLine) {
+            console.log("No internet connection detected. Pausing script...");
+            showToast("No internet connection. Script paused. Will resume when online...");
+            setTimeout(goToPreviousAvailableDate, 5000);
+            return;
+        }
+
+        if (checkForSessionTimeout()) {
+            isBusy = false;
+            return;
+        }
+
+        const timeSinceLastRefresh = Date.now() - lastSessionRefreshTime;
+        if (timeSinceLastRefresh >= sessionRefreshInterval) {
+            console.log(`Session refresh interval (${sessionRefreshInterval / 1000 / 60} minutes) reached. Refreshing page...`);
+            showToast("Refreshing page to maintain session...");
+            window.location.reload();
+            return;
+        }
+
+        const timeSinceLastNav = Date.now() - lastNavigationTime;
+        if (timeSinceLastNav < navigationDelay) {
+            console.log(`Waiting ${navigationDelay - timeSinceLastNav}ms to avoid rapid navigation`);
+            setTimeout(goToPreviousAvailableDate, navigationDelay - timeSinceLastNav);
+            return;
+        }
+
+        isBusy = true;
+        console.log("Navigating to previous available date...");
+        console.log(`State - isBusy: ${isBusy}, isScriptRunning: ${isScriptRunning}, isPopupVisible: ${isPopupVisible}, navigator.onLine: ${navigator.onLine}`);
+        let previousDateButton;
+        try {
+            previousDateButton = document.querySelector('#searchForWeeklySlotsPreviousAvailable');
+        } catch (err) {
+            console.error("Error querying previous available date button:", err);
+            isBusy = false;
+            randomDelay(goToPreviousAvailableDate);
+            return;
+        }
+
+        if (previousDateButton && !foundSeat) {
+            if (checkForPopup()) {
+                isBusy = false;
+                return;
+            }
+
+            console.log("Checking for main-iframe before navigation...");
+            waitForMainIframe()
+                .then(() => {
+                    lastNavigationTime = Date.now();
+                    previousDateButton.click();
+                    console.log("Clicked previous available date button");
+                    showToast("Checking previous available date...");
+
+                    waitForElement('.day.none, .day.nonenonotif, .slotsavailable', waitForElementTimeout)
+                        .then(() => {
+                            console.log("Date slots updated, proceeding...");
+                            retryCount = 0;
+                            setTimeout(step6, minWaitAfterLoad);
+                        })
+                        .catch((err) => {
+                            console.error("Failed to load date slots:", err);
+                            showToast("Error loading previous available date. Retrying...");
+                            retryCount++;
+                            if (retryCount >= maxRetries) {
+                                console.log(`Max retries (${maxRetries}) reached. Possible session issue. Refreshing page...`);
+                                showToast("Navigation failed. Refreshing page to reset session...");
+                                lastSessionRefreshTime = Date.now();
+                                window.location.reload();
+                            } else {
+                                setTimeout(goToPreviousAvailableDate, minDelay);
+                            }
+                        })
+                        .finally(() => {
+                            isBusy = false;
+                        });
+                })
+                .catch((err) => {
+                    console.error("Failed to find main-iframe:", err);
+                    showToast("Error: main-iframe not found. Retrying...");
+                    isBusy = false;
+                    setTimeout(goToPreviousAvailableDate, minDelay);
+                });
+        } else {
+            console.log("Previous available date button missing or seat found, switching to forward...");
+            searchDirection = "forward";
+            currentDateIndex = 0;
+            backwardDateIndex = 0;
+            randomDelay(step7);
+            isBusy = false;
+        }
+    }
+
+    function startSearch() {
+        if (!isScriptRunning) {
+            console.log("Script stopped, skipping startSearch.");
+            return;
+        }
+
+        if (!navigator.onLine) {
+            console.log("No internet connection detected. Pausing script...");
+            showToast("No internet connection. Script paused. Will resume when online...");
+            setTimeout(startSearch, 5000);
+            return;
+        }
+
+        if (checkForSessionTimeout()) {
+            return;
+        }
+
+        console.log("Starting search...");
+        currentDateIndex = 0;
+        backwardDateIndex = 0;
+        searchDirection = "forward";
+        foundSeat = false;
+        randomDelay(step6);
+    }
+
+    function checkForPopup() {
+        let popup;
+        try {
+            popup = document.querySelector('.ui-dialog.ui-corner-all.ui-widget.ui-widget-content.ui-front');
+        } catch (err) {
+            console.error("Error checking for popup:", err);
+            return false;
+        }
+
+        if (popup) {
+            const popupText = popup.textContent || popup.innerText;
+            console.log("Popup detected with text:", popupText);
+
+            if (
+                popupText.includes("Currently no tests are available") ||
+                popupText.includes("Too many requests") ||
+                popupText.includes("Session expired") ||
+                popupText.includes("Connection error")
+            ) {
+                let closeButton;
+                try {
+                    closeButton = popup.querySelector('.ui-button.ui-corner-all.ui-widget');
+                } catch (err) {
+                    console.error("Error finding close button:", err);
+                }
+                if (closeButton) {
+                    closeButton.click();
+                    console.log("Auto-closed popup:", popupText);
+                    isPopupVisible = false;
+                    if (popupTimer) clearTimeout(popupTimer);
+                    return false;
+                }
+            }
+
+            const isVisible = window.getComputedStyle(popup).display !== 'none' && window.getComputedStyle(popup).visibility !== 'hidden';
+            if (isVisible && !isPopupVisible) {
+                console.log("Blocking popup detected. Pausing...");
+                showToast("Blocking popup detected. Please dismiss manually.");
+                isPopupVisible = true;
+
+                popupTimer = setTimeout(() => {
+                    console.log("Popup dismissal timeout reached, attempting to refresh page...");
+                    showToast("Popup timeout reached. Refreshing page to reset session...");
+                    isPopupVisible = false;
+                    lastSessionRefreshTime = Date.now();
+                    window.location.reload();
+                }, popupTimeout);
+
+                return true;
+            }
+        }
+
+        if (isPopupVisible) {
+            console.log("Popup dismissed or no longer visible, resuming...");
+            isPopupVisible = false;
+            if (popupTimer) clearTimeout(popupTimer);
+            randomDelay(step6);
+        }
+        return false;
+    }
+
+    document.addEventListener('keydown', (event) => {
+        if (event.ctrlKey && event.shiftKey && event.key === 'S') {
+            stopScript();
+            event.preventDefault();
+        }
+    });
+
+    document.addEventListener('keydown', (event) => {
+        if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === 'r') {
+            console.log("Ctrl+Shift+R detected, restarting script...");
+            restartScript();
+            event.preventDefault();
+        }
+    });
+
+    document.addEventListener('keydown', (event) => {
+        if (event.ctrlKey && event.key.toLowerCase() === 'r' && !event.shiftKey) {
+            console.log("Ctrl+R detected, stopping and restarting script...");
+            stopScript();
+            restartScript();
+            event.preventDefault();
+        }
+    });
+
+    window.addEventListener('load', () => {
+        console.log("Page loaded, starting script...");
+        randomDelay(startSearch);
+    });
+
+    window.addEventListener('online', () => {
+        console.log("Internet connection restored. Resuming script...");
+        showToast("Internet connection restored. Resuming script...");
+        randomDelay(startSearch);
+    });
+
+    window.addEventListener('offline', () => {
+        console.log("Internet connection lost. Pausing script...");
+        showToast("Internet connection lost. Script paused...");
+    });
+
+    setInterval(checkForPopup, 3000);
+
+    (function createToastContainer() {
+        const style = document.createElement('style');
+        style.innerHTML = `
+            .toast {
+                visibility: hidden;
+                min-width: 250px;
+                margin-left: -125px;
+                background-color: #333;
+                color: #fff;
+                text-align: center;
+                border-radius: 2px;
+                padding: 16px;
+                position: fixed;
+                z-index: 10000;
+                left: 50%;
+                bottom: 30px;
+                font-size: 17px;
+            }
+            .toast.show {
+                visibility: visible;
+                -webkit-animation: fadein 0.5s, fadeout 0.5s 2.5s;
+                animation: fadein 0.5s, fadeout 0.5s 2.5s;
+            }
+            @-webkit-keyframes fadein { from {bottom: 0; opacity: 0;} to {bottom: 30px; opacity: 1;} }
+            @keyframes fadein { from {bottom: 0; opacity: 0;} to {bottom: 30px; opacity: 1;} }
+            @-webkit-keyframes fadeout { from {bottom: 30px; opacity: 1;} to {bottom: 0; opacity: 0;} }
+            @keyframes fadeout { from {bottom: 30px; opacity: 1;} to {bottom: 0; opacity: 0;} }
+        `;
+        document.head.appendChild(style);
+    })();
+})();
