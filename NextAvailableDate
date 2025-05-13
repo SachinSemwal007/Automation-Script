@@ -1,13 +1,11 @@
 // ==UserScript==
-// @name         DVSA Driving Test Date Automation (Simplified 1.0.0)
+// @name         DVSA NextAvailableDate (Simplified 1.0.0)
 // @namespace    http://tampermonkey.net/
 // @version      1.0.0
 // @description  Simplifies DVSA driving test booking by navigating through available dates (Next/Previous Available Date) every 5-7 seconds, instantly clicking the first available date found. Includes basic popup handling, network checks, stop with Ctrl+Shift+S, and restart with Ctrl+Shift+R.
 // @include      https://driver-services.dvsa.gov.uk/*
 // @grant        none
 // ==/UserScript==
-
-
 
 (function () {
     'use strict';
@@ -167,22 +165,35 @@
             return;
         }
 
-        for (let cell of dateCells) {
-            if (cell.classList.contains('slotsavailable')) {
+      //  for (let cell of dateCells) {
+      //      if (cell.classList.contains('slotsavailable')) {
+      //          const dateLink = cell.querySelector('a');
+      //          if (dateLink) {
+     //               const dateText = dateLink.textContent.trim();
+     //               if (dateText && !isNaN(parseInt(dateText))) {
+     //                   const parsedDate = new Date(`${dateText} ${month} ${year}`);
+     //                   if (!isNaN(parsedDate.getTime())) {
+    //                        foundSeat = true;
+    //                        console.log(`Found available date: ${parsedDate.toLocaleString('en-US', { weekday: 'long' })}, ${dateText} ${month} ${year}`);
+    //                        showToast(`Found available date: ${dateText} ${month} ${year}. Clicking to book...`);
+    //                        dateLink.click();
+    //                        isBusy = false;
+    //                        return;
+    //                    }
+    //                }
+   //             }
+  //          }
+  //      }
+
+        for(let cell of dateCells) {
+            if(cell.classList.contains('slotsavailable')) {
                 const dateLink = cell.querySelector('a');
-                if (dateLink) {
-                    const dateText = dateLink.textContent.trim();
-                    if (dateText && !isNaN(parseInt(dateText))) {
-                        const parsedDate = new Date(`${dateText} ${month} ${year}`);
-                        if (!isNaN(parsedDate.getTime())) {
-                            foundSeat = true;
-                            console.log(`Found available date: ${parsedDate.toLocaleString('en-US', { weekday: 'long' })}, ${dateText} ${month} ${year}`);
-                            showToast(`Found available date: ${dateText} ${month} ${year}. Clicking to book...`);
-                            dateLink.click();
-                            isBusy = false;
-                            return;
-                        }
-                    }
+                if(dateLink){
+                    console.log("Available sl:ot found, cliking immediately...");
+                    showToast("Slot found! Clicking to book ...");
+                    dateLink.click();
+                    isBusy = false;
+                    return;
                 }
             }
         }
@@ -282,7 +293,7 @@
     }
 
     document.addEventListener('keydown', (event) => {
-        if (event.ctrlKey && event.shiftKey && event.key === 'S') {
+        if (event.ctrlKey && event.shiftKey && event.key === 's') {
             stopScript();
             event.preventDefault();
         }
