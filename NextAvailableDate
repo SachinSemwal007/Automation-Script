@@ -292,6 +292,76 @@
         return false;
     }
 
+async function reserveTestSlot() {
+    console.log("Looking for 'Reserve test' buttons via greybutton spans...");
+    let greyButtonSpans;
+    try {
+        // Target spans with class="greybutton"
+        greyButtonSpans = document.querySelectorAll('span.greybutton');
+        console.log(`Found ${greyButtonSpans.length} greybutton spans`);
+    } catch (err) {
+        console.error("Error finding greybutton spans:", err);
+        showToast("Error finding time slots. Continuing search...");
+        randomDelay(checkForAvailableDate);
+        return;
+    }
+
+    if (greyButtonSpans.length === 0) {
+        console.log("No greybutton spans found, returning to date search...");
+        showToast("No time slots available. Continuing search...");
+        randomDelay(checkForAvailableDate);
+        return;
+    }
+
+    // Try each "Reserve test" button inside greybutton spans one by one
+    for (let i = 0; i < greyButtonSpans.length; i++) {
+        const span = greyButtonSpans[i];
+        try {
+            const reserveButton = span.querySelector('a[href*="/reserve"]');
+            if (!reserveButton) {
+                console.log(`No reserve button found inside greybutton span ${i + 1}, skipping...`);
+                continue;
+            }
+
+            // Get the time slot for logging
+            const timeSlot = span.closest('tr')?.querySelector('td')?.textContent.trim() || "unknown";
+            console.log(`Attempting to reserve time slot ${i + 1}/${greyButtonSpans.length}: ${timeSlot}`);
+
+            // Check if the button is hidden (for logging purposes)
+            const isHidden = reserveButton.classList.contains('hidden') || getComputedStyle(reserveButton).display === 'none';
+            if (isHidden) {
+                console.log(`Button for ${timeSlot} is hidden, attempting to click anyway...`);
+            }
+
+            // Click the button
+            showToast(`Reserving slot at ${timeSlot}...`);
+            reserveButton.click();
+
+            // Wait for confirmation page
+            try {
+                await waitForElement('.confirmation-page-selector', 5000); // Replace with actual selector
+                console.log("Reservation confirmed! Stopping script...");
+                showToast("Booking successful! Script stopped.");
+                stopScript();
+                return;
+            } catch (err) {
+                console.log(`Failed to confirm reservation for slot ${timeSlot}: ${err.message}`);
+                showToast(`Slot at ${timeSlot} unavailable, trying next time...`);
+                // Continue to the next button
+            }
+        } catch (err) {
+            console.log(`Error processing slot ${i + 1}/${greyButtonSpans.length}: ${err.message}`);
+            showToast(`Error with slot ${i + 1}, trying next time...`);
+            // Continue to the next button even if there's an error
+        }
+    }
+
+    // If all slots fail, go back to searching for dates
+    console.log("All time slots unavailable, returning to date search...");
+    showToast("All slots taken. Continuing search...");
+    randomDelay(checkForAvailableDate);
+}
+
     document.addEventListener('keydown', (event) => {
         if (event.ctrlKey && event.shiftKey && event.key === 's') {
             stopScript();
