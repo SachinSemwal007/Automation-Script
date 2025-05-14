@@ -1,0 +1,135 @@
+  async function reserveTestSlot() {
+        console.log("Looking for available time slots and Reserve button...");
+
+        // Step 1: Check for time slots or Reserve buttons directly
+        let timeSlots;
+        try {
+            // Updated selector to match <td class="reserve centre"> containing <span class="greybutton">
+            timeSlots = document.querySelectorAll('td.reserve.centre, li[class*="time-slot"], td[class*="time-slot"], div[class*="time-slot"], .available-time');
+            console.log(`Found ${timeSlots.length} time slots with selector (td.reserve.centre, li[class*="time-slot"], td[class*="time-slot"], div[class*="time-slot"], .available-time)`);
+
+            if (timeSlots.length > 0) {
+                console.log("Inspecting time slots:");
+                timeSlots.forEach((slot, index) => {
+                    const classes = slot.className || "No classes";
+                    const innerHTML = slot.innerHTML || "No inner HTML";
+                    console.log(`Time Slot ${index + 1}: Classes: ${classes}, Inner HTML: ${innerHTML}`);
+                });
+            }
+        } catch (err) {
+            console.error("Error querying time slots:", err);
+            showToast("Error finding time slots. Continuing search...");
+            randomDelay(checkForAvailableDate);
+            return;
+        }
+
+        if (timeSlots.length === 0) {
+            console.log("No time slots or Reserve buttons found, returning to date search...");
+            showToast("No time slots available. Continuing search...");
+            randomDelay(checkForAvailableDate);
+            return;
+        }
+
+        // Step 2: Process each time slot to find the Reserve button
+        for (let slot of timeSlots) {
+            // Check if this slot contains a Reserve button (e.g., inside <span class="greybutton">)
+            let reserveButton;
+            try {
+                reserveButton = slot.querySelector('span.greybutton a[href*="/reserve"]');
+                if (reserveButton) {
+                    console.log("Found Reserve button inside greybutton:", reserveButton);
+                } else {
+                    // Fallback to generic selector if greybutton approach fails
+                    reserveButton = slot.querySelector('button[id*="reserve"], button[class*="reserve"], input[type="submit"][value*="Reserve"], a[href*="/reserve"], button');
+                    if (reserveButton) {
+                        console.log("Found Reserve button with fallback selector:", reserveButton);
+                    }
+                }
+            } catch (err) {
+                console.error("Error finding Reserve button in slot:", err);
+                continue;
+            }
+
+            if (reserveButton) {
+                // Extract time slot info (e.g., from the <td> or surrounding elements)
+                const timeText = slot.textContent.trim() || "unknown";
+                console.log(`Found Reserve button for slot: ${timeText}`);
+
+                // Click the Reserve button
+                showToast(`Reserving slot...`);
+                reserveButton.click();
+
+                // Step 3: Wait for confirmation page
+                waitForElement('h1, .govuk-heading-l, [class*="confirmation"], [class*="success"]', waitForElementTimeout)
+                    .then((confirmationElement) => {
+                        const confirmationText = confirmationElement.textContent.toLowerCase();
+                        if (confirmationText.includes('confirm') || confirmationText.includes('success') || confirmationText.includes('booked')) {
+                            console.log("Reservation confirmed! Stopping script...");
+                            showToast("Booking successful! Script stopped.");
+                            stopScript();
+                        } else {
+                            console.log("Confirmation page loaded, but success not confirmed:", confirmationText);
+                            showToast("Booking may have succeeded. Please check manually.");
+                            stopScript();
+                        }
+                    })
+                    .catch((err) => {
+                        console.error("Failed to confirm reservation:", err);
+                        showToast("Unable to confirm booking. Please check manually.");
+                        stopScript();
+                    });
+                return; // Stop after clicking the first Reserve button
+            } else {
+                // If no Reserve button, try selecting the time slot (if required)
+                const hasAvailability = slot.classList.contains('available-time') || slot.classList.contains('time-slot-available') || slot.textContent.toLowerCase().includes('available');
+                if (hasAvailability) {
+                    let clickableElement = slot.querySelector('a') || slot.querySelector('button') || slot.querySelector('input[type="radio"]') || slot;
+                    if (clickableElement) {
+                        const timeText = clickableElement.textContent.trim() || "unknown";
+                        console.log(`Found an available time slot: ${timeText}`);
+                        showToast(`Selecting time slot at ${timeText}...`);
+                        clickableElement.click();
+
+                        // Wait for the DOM to update and look for the Reserve button again
+                        waitForElement('span.greybutton a[href*="/reserve"], button[id*="reserve"], button[class*="reserve"], input[type="submit"][value*="Reserve"], a[href*="/reserve"], button', waitForElementTimeout)
+                            .then((reserveButton) => {
+                                const timeText = slot.textContent.trim() || "unknown";
+                                console.log(`Found Reserve button after selecting slot: ${timeText}`, reserveButton);
+                                showToast(`Reserving slot at ${timeText}...`);
+                                reserveButton.click();
+
+                                // Wait for confirmation page
+                                waitForElement('h1, .govuk-heading-l, [class*="confirmation"], [class*="success"]', waitForElementTimeout)
+                                    .then((confirmationElement) => {
+                                        const confirmationText = confirmationElement.textContent.toLowerCase();
+                                        if (confirmationText.includes('confirm') || confirmationText.includes('success') || confirmationText.includes('booked')) {
+                                            console.log("Reservation confirmed! Stopping script...");
+                                            showToast("Booking successful! Script stopped.");
+                                            stopScript();
+                                        } else {
+                                            console.log("Confirmation page loaded, but success not confirmed:", confirmationText);
+                                            showToast("Booking may have succeeded. Please check manually.");
+                                            stopScript();
+                                        }
+                                    })
+                                    .catch((err) => {
+                                        console.error("Failed to confirm reservation:", err);
+                                        showToast("Unable to confirm booking. Please check manually.");
+                                        stopScript();
+                                    });
+                            })
+                            .catch((err) => {
+                                console.error("Failed to find Reserve button after selecting slot:", err);
+                                showToast("Reserve button not found after selecting slot. Continuing search...");
+                                randomDelay(checkForAvailableDate);
+                            });
+                        return; // Stop after attempting to select and reserve
+                    }
+                }
+            }
+        }
+
+        console.log("No Reserve buttons or available time slots found.");
+        showToast("No available slots to reserve. Continuing search...");
+        randomDelay(checkForAvailableDate);
+    }
