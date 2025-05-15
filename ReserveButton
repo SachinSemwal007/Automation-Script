@@ -1,135 +1,443 @@
-  async function reserveTestSlot() {
-        console.log("Looking for available time slots and Reserve button...");
+// ==UserScript==
+// @name         DVSA NextAvailableDate (Simplified 1.0.2)
+// @namespace    http://tampermonkey.net/
+// @version      1.0.2
+// @description  Simplifies DVSA driving test booking by navigating through available dates (Next/Previous Available Date) every 20-30 seconds, instantly clicking the first available date found, and directly clicking the Reserve button. Includes anti-bot measures (random delays, scrolling, mouse simulation), detailed logging, popup handling, network checks, stop with Ctrl+Shift+S, and restart with Ctrl+Shift+R.
+// @include      https://driver-services.dvsa.gov.uk/*
+// @grant        none
+// ==/UserScript==
 
-        // Step 1: Check for time slots or Reserve buttons directly
-        let timeSlots;
-        try {
-            // Updated selector to match <td class="reserve centre"> containing <span class="greybutton">
-            timeSlots = document.querySelectorAll('td.reserve.centre, li[class*="time-slot"], td[class*="time-slot"], div[class*="time-slot"], .available-time');
-            console.log(`Found ${timeSlots.length} time slots with selector (td.reserve.centre, li[class*="time-slot"], td[class*="time-slot"], div[class*="time-slot"], .available-time)`);
+(function () {
+    'use strict';
 
-            if (timeSlots.length > 0) {
-                console.log("Inspecting time slots:");
-                timeSlots.forEach((slot, index) => {
-                    const classes = slot.className || "No classes";
-                    const innerHTML = slot.innerHTML || "No inner HTML";
-                    console.log(`Time Slot ${index + 1}: Classes: ${classes}, Inner HTML: ${innerHTML}`);
+    console.log("Simplified Script Loaded and Running");
+
+    const minDelay = 20000; // 20 seconds
+    const maxDelay = 30000; // 30 seconds
+    const waitForElementTimeout = 10000; // 10 seconds to wait for elements to load
+    let searchDirection = "forward";
+    let foundSeat = false;
+    let isScriptRunning = true;
+    let isBusy = false;
+
+    window.stopScript = function () {
+        isScriptRunning = false;
+        console.log("Script stopped manually. Press Ctrl+Shift+R to restart.");
+        showToast("Script stopped. Press Ctrl+Shift+R to restart.");
+    };
+
+    window.restartScript = function () {
+        console.log("Restarting script without page refresh...");
+        isScriptRunning = true;
+        searchDirection = "forward";
+        foundSeat = false;
+        isBusy = false;
+        showToast("Script restarted!");
+        randomDelay(checkForAvailableDate);
+    };
+
+    function randomIntBetween(min, max) {
+        const mean = (max + min) / 2;
+        const stdDev = (max - min) / 6;
+        let value;
+        do {
+            value = mean + stdDev * (Math.random() * 2 - 1) * 2;
+        } while (value < min || value > max);
+        return Math.floor(value);
+    }
+
+    function randomDelay(callback) {
+        const delay = randomIntBetween(minDelay, maxDelay);
+        console.log(`Delaying for ${delay}ms`);
+        setTimeout(callback, delay);
+    }
+
+    function showToast(message) {
+        const toast = document.createElement('div');
+        toast.className = 'toast';
+        toast.textContent = message;
+        document.body.appendChild(toast);
+        setTimeout(() => toast.classList.add('show'), 10);
+        setTimeout(() => {
+            toast.classList.remove('show');
+            setTimeout(() => toast.remove(), 300);
+        }, 3000);
+    }
+
+    function simulateHumanBehavior() {
+        // Random scroll
+        const scrollAmount = Math.random() * 500 - 250; // Scroll between -250 and +250 pixels
+        window.scrollBy(0, scrollAmount);
+        console.log(`Simulated scroll by ${scrollAmount}px`);
+
+        // Simulate mouse movement
+        const mouseEvent = new Event('mousemove', { bubbles: true });
+        document.dispatchEvent(mouseEvent);
+        console.log("Simulated mouse movement");
+    }
+
+    function getWeekRange() {
+        const today = new Date();
+        const startDate = today.toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' });
+        const [day, month, year] = startDate.split(' ');
+        return { startDate, day, month, year };
+    }
+
+    function waitForElement(selector, timeout = waitForElementTimeout) {
+        return new Promise((resolve, reject) => {
+            console.log(`Waiting for element: ${selector}, timeout: ${timeout}ms`);
+            const element = document.querySelector(selector);
+            if (element) {
+                console.log(`Element ${selector} found immediately`);
+                resolve(element);
+                return;
+            }
+
+            let observer;
+            try {
+                observer = new MutationObserver((mutations, obs) => {
+                    const el = document.querySelector(selector);
+                    if (el) {
+                        console.log(`Element ${selector} found via MutationObserver`);
+                        obs.disconnect();
+                        resolve(el);
+                    }
                 });
+
+                observer.observe(document.body, { childList: true, subtree: true });
+
+                setTimeout(() => {
+                    observer.disconnect();
+                    reject(new Error(`Element ${selector} not found within ${timeout}ms`));
+                }, timeout);
+            } catch (err) {
+                if (observer) observer.disconnect();
+                reject(err);
+            }
+        });
+    }
+
+    async function checkForAvailableDate() {
+        if (!isScriptRunning) {
+            console.log("Script stopped, skipping checkForAvailableDate.");
+            return;
+        }
+
+        if (isBusy) {
+            console.log("Script busy, retrying checkForAvailableDate...");
+            setTimeout(checkForAvailableDate, 1000);
+            return;
+        }
+
+        if (!navigator.onLine) {
+            console.log("No internet connection detected. Pausing script...");
+            showToast("No internet connection. Script paused. Will resume when online...");
+            setTimeout(checkForAvailableDate, 5000);
+            return;
+        }
+
+        if (checkForPopup()) {
+            console.log("Popup detected, pausing until dismissed...");
+            setTimeout(checkForAvailableDate, 3000);
+            return;
+        }
+
+        isBusy = true;
+        console.log(`Checking for available date, Direction: ${searchDirection}`);
+        console.log(`State - isBusy: ${isBusy}, isScriptRunning: ${isScriptRunning}, navigator.onLine: ${navigator.onLine}`);
+
+        const weekRange = getWeekRange();
+        if (!weekRange) {
+            console.error("Failed to determine week range");
+            isBusy = false;
+            randomDelay(checkForAvailableDate);
+            return;
+        }
+
+        const { day, month, year } = weekRange;
+        let dateCells;
+        try {
+            dateCells = document.querySelectorAll('.day.none, .day.nonenonotif, .slotsavailable');
+            console.log(`Found ${dateCells.length} date cells with primary selector`);
+            if (dateCells.length === 0) {
+                console.log("No date cells found with primary selector, trying fallback...");
+                dateCells = document.querySelectorAll('td.day');
+                console.log(`Fallback: Found ${dateCells.length} date cells`);
             }
         } catch (err) {
-            console.error("Error querying time slots:", err);
-            showToast("Error finding time slots. Continuing search...");
+            console.error("Error querying date cells:", err);
+            isBusy = false;
             randomDelay(checkForAvailableDate);
             return;
         }
 
-        if (timeSlots.length === 0) {
-            console.log("No time slots or Reserve buttons found, returning to date search...");
-            showToast("No time slots available. Continuing search...");
-            randomDelay(checkForAvailableDate);
+        if (dateCells.length === 0) {
+            console.log("No date cells found, navigating to next/previous available date...");
+            navigateToNextOrPrevious();
             return;
         }
 
-        // Step 2: Process each time slot to find the Reserve button
-        for (let slot of timeSlots) {
-            // Check if this slot contains a Reserve button (e.g., inside <span class="greybutton">)
-            let reserveButton;
-            try {
-                reserveButton = slot.querySelector('span.greybutton a[href*="/reserve"]');
-                if (reserveButton) {
-                    console.log("Found Reserve button inside greybutton:", reserveButton);
-                } else {
-                    // Fallback to generic selector if greybutton approach fails
-                    reserveButton = slot.querySelector('button[id*="reserve"], button[class*="reserve"], input[type="submit"][value*="Reserve"], a[href*="/reserve"], button');
-                    if (reserveButton) {
-                        console.log("Found Reserve button with fallback selector:", reserveButton);
-                    }
-                }
-            } catch (err) {
-                console.error("Error finding Reserve button in slot:", err);
-                continue;
-            }
+        for (let cell of dateCells) {
+            if (cell.classList.contains('slotsavailable')) {
+                const dateLink = cell.querySelector('a');
+                if (dateLink) {
+                    console.log("Available slot found, clicking immediately...");
+                    showToast("Slot found! Clicking to view details...");
+                    dateLink.click();
+                    isBusy = false;
 
-            if (reserveButton) {
-                // Extract time slot info (e.g., from the <td> or surrounding elements)
-                const timeText = slot.textContent.trim() || "unknown";
-                console.log(`Found Reserve button for slot: ${timeText}`);
-
-                // Click the Reserve button
-                showToast(`Reserving slot...`);
-                reserveButton.click();
-
-                // Step 3: Wait for confirmation page
-                waitForElement('h1, .govuk-heading-l, [class*="confirmation"], [class*="success"]', waitForElementTimeout)
-                    .then((confirmationElement) => {
-                        const confirmationText = confirmationElement.textContent.toLowerCase();
-                        if (confirmationText.includes('confirm') || confirmationText.includes('success') || confirmationText.includes('booked')) {
-                            console.log("Reservation confirmed! Stopping script...");
-                            showToast("Booking successful! Script stopped.");
-                            stopScript();
-                        } else {
-                            console.log("Confirmation page loaded, but success not confirmed:", confirmationText);
-                            showToast("Booking may have succeeded. Please check manually.");
-                            stopScript();
-                        }
-                    })
-                    .catch((err) => {
-                        console.error("Failed to confirm reservation:", err);
-                        showToast("Unable to confirm booking. Please check manually.");
-                        stopScript();
-                    });
-                return; // Stop after clicking the first Reserve button
-            } else {
-                // If no Reserve button, try selecting the time slot (if required)
-                const hasAvailability = slot.classList.contains('available-time') || slot.classList.contains('time-slot-available') || slot.textContent.toLowerCase().includes('available');
-                if (hasAvailability) {
-                    let clickableElement = slot.querySelector('a') || slot.querySelector('button') || slot.querySelector('input[type="radio"]') || slot;
-                    if (clickableElement) {
-                        const timeText = clickableElement.textContent.trim() || "unknown";
-                        console.log(`Found an available time slot: ${timeText}`);
-                        showToast(`Selecting time slot at ${timeText}...`);
-                        clickableElement.click();
-
-                        // Wait for the DOM to update and look for the Reserve button again
-                        waitForElement('span.greybutton a[href*="/reserve"], button[id*="reserve"], button[class*="reserve"], input[type="submit"][value*="Reserve"], a[href*="/reserve"], button', waitForElementTimeout)
-                            .then((reserveButton) => {
-                                const timeText = slot.textContent.trim() || "unknown";
-                                console.log(`Found Reserve button after selecting slot: ${timeText}`, reserveButton);
-                                showToast(`Reserving slot at ${timeText}...`);
-                                reserveButton.click();
-
-                                // Wait for confirmation page
-                                waitForElement('h1, .govuk-heading-l, [class*="confirmation"], [class*="success"]', waitForElementTimeout)
-                                    .then((confirmationElement) => {
-                                        const confirmationText = confirmationElement.textContent.toLowerCase();
-                                        if (confirmationText.includes('confirm') || confirmationText.includes('success') || confirmationText.includes('booked')) {
-                                            console.log("Reservation confirmed! Stopping script...");
-                                            showToast("Booking successful! Script stopped.");
-                                            stopScript();
-                                        } else {
-                                            console.log("Confirmation page loaded, but success not confirmed:", confirmationText);
-                                            showToast("Booking may have succeeded. Please check manually.");
-                                            stopScript();
-                                        }
-                                    })
-                                    .catch((err) => {
-                                        console.error("Failed to confirm reservation:", err);
-                                        showToast("Unable to confirm booking. Please check manually.");
-                                        stopScript();
-                                    });
-                            })
-                            .catch((err) => {
-                                console.error("Failed to find Reserve button after selecting slot:", err);
-                                showToast("Reserve button not found after selecting slot. Continuing search...");
-                                randomDelay(checkForAvailableDate);
-                            });
-                        return; // Stop after attempting to select and reserve
-                    }
+                    // Wait for the Reserve button to appear
+                    waitForElement('td.reserve.centre, span.greybutton', waitForElementTimeout)
+                        .then(() => {
+                            console.log("Reserve button container found, proceeding to click Reserve...");
+                            reserveTestSlot();
+                        })
+                        .catch((err) => {
+                            console.error("Failed to find Reserve button container:", err);
+                            showToast("Error finding Reserve button. Continuing search...");
+                            randomDelay(checkForAvailableDate);
+                        });
+                    return;
                 }
             }
         }
 
-        console.log("No Reserve buttons or available time slots found.");
-        showToast("No available slots to reserve. Continuing search...");
-        randomDelay(checkForAvailableDate);
+        console.log("No available dates found");
+        showToast("No dates available");
+        navigateToNextOrPrevious();
     }
+
+    function navigateToNextOrPrevious() {
+        if (!isScriptRunning) {
+            console.log("Script stopped, skipping navigation.");
+            isBusy = false;
+            return;
+        }
+
+        // Simulate human behavior before navigating
+        simulateHumanBehavior();
+
+        let navigationLink;
+        let directionText;
+        if (searchDirection === "forward") {
+            navigationLink = document.querySelector('#searchForWeeklySlotsNextAvailable');
+            directionText = "next available date";
+        } else {
+            navigationLink = document.querySelector('#searchForWeeklySlotsPreviousAvailable');
+            directionText = "previous available date";
+        }
+
+        if (navigationLink) {
+            navigationLink.click();
+            console.log(`Clicked ${directionText} link`);
+            showToast(`Checking ${directionText}...`);
+
+            waitForElement('.day.none, .day.nonenonotif, .slotsavailable', waitForElementTimeout)
+                .then(() => {
+                    console.log("Date slots updated, proceeding...");
+                    searchDirection = searchDirection === "forward" ? "backward" : "forward";
+                    isBusy = false;
+                    randomDelay(checkForAvailableDate);
+                })
+                .catch((err) => {
+                    console.error("Failed to load date slots:", err);
+                    showToast(`Error loading ${directionText}. Retrying...`);
+                    searchDirection = searchDirection === "forward" ? "backward" : "forward";
+                    isBusy = false;
+                    randomDelay(checkForAvailableDate);
+                });
+        } else {
+            console.log(`${directionText} button missing`);
+            showToast(`${directionText} button not found. Switching direction...`);
+            searchDirection = searchDirection === "forward" ? "backward" : "forward";
+            isBusy = false;
+            randomDelay(checkForAvailableDate);
+        }
+    }
+
+    function checkForPopup() {
+        let popup;
+        try {
+            popup = document.querySelector('.ui-dialog.ui-corner-all.ui-widget.ui-widget-content.ui-front');
+        } catch (err) {
+            console.error("Error checking for popup:", err);
+            return false;
+        }
+
+        if (popup) {
+            const popupText = popup.textContent || popup.innerText;
+            console.log("Popup detected with text:", popupText);
+
+            if (
+                popupText.includes("Currently no tests are available") ||
+                popupText.includes("Too many requests") ||
+                popupText.includes("Session expired") ||
+                popupText.includes("Connection error")
+            ) {
+                let closeButton;
+                try {
+                    closeButton = popup.querySelector('.ui-button.ui-corner-all.ui-widget');
+                } catch (err) {
+                    console.error("Error finding close button:", err);
+                }
+                if (closeButton) {
+                    closeButton.click();
+                    console.log("Auto-closed popup:", popupText);
+                    return false;
+                }
+            }
+
+            const isVisible = window.getComputedStyle(popup).display !== 'none' && window.getComputedStyle(popup).visibility !== 'hidden';
+            if (isVisible) {
+                console.log("Blocking popup detected. Please dismiss manually.");
+                showToast("Popup detected. Please dismiss manually.");
+                return true;
+            }
+        }
+        return false;
+    }
+
+    async function reserveTestSlot() {
+        console.log("Looking for Reserve button...");
+
+        let reserveButton;
+        try {
+            // Look for the Reserve button directly
+            reserveButton = document.querySelector('span.greybutton a[href*="/reserve"]');
+            if (reserveButton) {
+                console.log("Found Reserve button inside greybutton:", reserveButton);
+            } else {
+                // Fallback to a more generic selector
+                reserveButton = document.querySelector('button[id*="reserve"], button[class*="reserve"], input[type="submit"][value*="Reserve"], a[href*="/reserve"], button');
+                if (reserveButton) {
+                    console.log("Found Reserve button with fallback selector:", reserveButton);
+                }
+            }
+
+            // Additional logging to inspect the page
+            const reserveCells = document.querySelectorAll('td.reserve.centre');
+            console.log(`Found ${reserveCells.length} elements with selector td.reserve.centre`);
+            reserveCells.forEach((cell, index) => {
+                const innerHTML = cell.innerHTML || "No inner HTML";
+                console.log(`Reserve Cell ${index + 1}: Inner HTML: ${innerHTML}`);
+            });
+        } catch (err) {
+            console.error("Error querying Reserve button:", err);
+            showToast("Error finding Reserve button. Continuing search...");
+            randomDelay(checkForAvailableDate);
+            return;
+        }
+
+        if (reserveButton) {
+            const surroundingText = reserveButton.closest('td')?.textContent.trim() || "unknown";
+            console.log(`Found Reserve button: ${surroundingText}`);
+
+            // Simulate human behavior before clicking
+            simulateHumanBehavior();
+
+            showToast(`Reserving slot...`);
+            reserveButton.click();
+
+            // Wait for confirmation page
+            waitForElement('h1, .govuk-heading-l, [class*="confirmation"], [class*="success"]', waitForElementTimeout)
+                .then((confirmationElement) => {
+                    const confirmationText = confirmationElement.textContent.toLowerCase();
+                    if (confirmationText.includes('confirm') || confirmationText.includes('success') || confirmationText.includes('booked')) {
+                        console.log("Reservation confirmed! Stopping script...");
+                        showToast("Booking successful! Script stopped.");
+                        stopScript();
+                    } else {
+                        console.log("Confirmation page loaded, but success not confirmed:", confirmationText);
+                        showToast("Booking may have succeeded. Please check manually.");
+                        stopScript();
+                    }
+                })
+                .catch((err) => {
+                    console.error("Failed to confirm reservation:", err);
+                    showToast("Unable to confirm booking. Please check manually.");
+                    stopScript();
+                });
+        } else {
+            console.log("No Reserve button found.");
+            showToast("No Reserve button found. Continuing search...");
+            randomDelay(checkForAvailableDate);
+        }
+    }
+
+    document.addEventListener('keydown', (event) => {
+        if (event.ctrlKey && event.shiftKey && event.key === 'S') {
+            stopScript();
+            event.preventDefault();
+        }
+    });
+
+    document.addEventListener('keydown', (event) => {
+        if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === 'r') {
+            console.log("Ctrl+Shift+R detected, restarting script...");
+            restartScript();
+            event.preventDefault();
+        }
+    });
+
+    document.addEventListener('keydown', (event) => {
+        if (event.ctrlKey && event.key.toLowerCase() === 'r' && !event.shiftKey) {
+            console.log("Ctrl+R detected, stopping and restarting script...");
+            stopScript();
+            restartScript();
+            event.preventDefault();
+        }
+    });
+
+    window.addEventListener('load', () => {
+        console.log("Page loaded, starting script...");
+        randomDelay(checkForAvailableDate);
+    });
+
+    window.addEventListener('online', () => {
+        console.log("Internet connection restored. Resuming script...");
+        showToast("Internet connection restored. Resuming script...");
+        randomDelay(checkForAvailableDate);
+    });
+
+    window.addEventListener('offline', () => {
+        console.log("Internet connection lost. Pausing script...");
+        showToast("Internet connection lost. Script paused...");
+    });
+
+    setInterval(() => {
+        if (checkForPopup()) {
+            console.log("Popup still present, waiting...");
+        }
+    }, 3000);
+
+    (function createToastContainer() {
+        const style = document.createElement('style');
+        style.innerHTML = `
+            .toast {
+                visibility: hidden;
+                min-width: 250px;
+                margin-left: -125px;
+                background-color: #333;
+                color: #fff;
+                text-align: center;
+                border-radius: 2px;
+                padding: 16px;
+                position: fixed;
+                z-index: 10000;
+                left: 50%;
+                bottom: 30px;
+                font-size: 17px;
+            }
+            .toast.show {
+                visibility: visible;
+                -webkit-animation: fadein 0.5s, fadeout 0.5s 2.5s;
+                animation: fadein 0.5s, fadeout 0.5s 2.5s;
+            }
+            @-webkit-keyframes fadein { from {bottom: 0; opacity: 0;} to {bottom: 30px; opacity: 1;} }
+            @keyframes fadein { from {bottom: 0; opacity: 0;} to {bottom: 30px; opacity: 1;} }
+            @-webkit-keyframes fadeout { from {bottom: 30px; opacity: 1;} to {bottom: 0; opacity: 0;} }
+            @keyframes fadeout { from {bottom: 30px; opacity: 1;} to {bottom: 0; opacity: 0;} }
+        `;
+        document.head.appendChild(style);
+    })();
+})();
