@@ -12,9 +12,9 @@
 
     console.log("Simplified Script Loaded and Running");
 
-    const minDelay = 20000; // 20 seconds
-    const maxDelay = 30000; // 30 seconds
-    const waitForElementTimeout = 3000; // 3 seconds to wait for elements to load (reduced for faster action)
+    const minDelay = 5000; 
+    const maxDelay = 7000; 
+    const waitForElementTimeout = 4000; // 4 seconds to wait for elements to load (reduced for faster action)
     const retryAttempts = 5; // Retry finding the Reserve button 5 times
     const retryDelay = 500; // 0.5 seconds between retries
     let searchDirection = "forward";
