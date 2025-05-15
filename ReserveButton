@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         DVSA NextAvailableDate (Simplified 1.0.2)
+// @name         DVSA NextAvailableDate (Simplified 1.0.4)
 // @namespace    http://tampermonkey.net/
-// @version      1.0.2
-// @description  Simplifies DVSA driving test booking by navigating through available dates (Next/Previous Available Date) every 20-30 seconds, instantly clicking the first available date found, and directly clicking the Reserve button. Includes anti-bot measures (random delays, scrolling, mouse simulation), detailed logging, popup handling, network checks, stop with Ctrl+Shift+S, and restart with Ctrl+Shift+R.
+// @version      1.0.4
+// @description  Simplifies DVSA driving test booking by navigating through available dates (Next/Previous Available Date) every 20-30 seconds, instantly clicking the first available date found, and directly clicking the Reserve button. Includes anti-bot measures (random delays, scrolling, mouse simulation), improved Reserve button detection with faster action, session timeout handling, enhanced popup handling, detailed logging, network checks, stop with Ctrl+Shift+S, and restart with Ctrl+Shift+R.
 // @include      https://driver-services.dvsa.gov.uk/*
 // @grant        none
 // ==/UserScript==
@@ -14,14 +14,18 @@
 
     const minDelay = 20000; // 20 seconds
     const maxDelay = 30000; // 30 seconds
-    const waitForElementTimeout = 10000; // 10 seconds to wait for elements to load
+    const waitForElementTimeout = 3000; // 3 seconds to wait for elements to load (reduced for faster action)
+    const retryAttempts = 5; // Retry finding the Reserve button 5 times
+    const retryDelay = 500; // 0.5 seconds between retries
     let searchDirection = "forward";
     let foundSeat = false;
     let isScriptRunning = true;
     let isBusy = false;
+    let isOnSlotDetailsPage = false; // Track if we're on the slot details page
 
     window.stopScript = function () {
         isScriptRunning = false;
+        isOnSlotDetailsPage = false;
         console.log("Script stopped manually. Press Ctrl+Shift+R to restart.");
         showToast("Script stopped. Press Ctrl+Shift+R to restart.");
     };
@@ -32,6 +36,7 @@
         searchDirection = "forward";
         foundSeat = false;
         isBusy = false;
+        isOnSlotDetailsPage = false;
         showToast("Script restarted!");
         randomDelay(checkForAvailableDate);
     };
@@ -66,7 +71,7 @@
 
     function simulateHumanBehavior() {
         // Random scroll
-        const scrollAmount = Math.random() * 500 - 250; // Scroll between -250 and +250 pixels
+        const scrollAmount = Math.random() * 500 - 250;
         window.scrollBy(0, scrollAmount);
         console.log(`Simulated scroll by ${scrollAmount}px`);
 
@@ -117,6 +122,23 @@
         });
     }
 
+    function checkForSessionTimeout() {
+        const sessionExpiredText = document.querySelector('body')?.textContent || '';
+        const loginForm = document.querySelector('input[type="password"], input[type="email"], input[type="text"][name*="username"]');
+        if (
+            sessionExpiredText.includes("Session expired") ||
+            sessionExpiredText.includes("Log in") ||
+            sessionExpiredText.includes("Please sign in") ||
+            loginForm
+        ) {
+            console.log("Session timeout or login page detected.");
+            showToast("Session expired. Please log in again and restart the script with Ctrl+Shift+R.");
+            stopScript();
+            return true;
+        }
+        return false;
+    }
+
     async function checkForAvailableDate() {
         if (!isScriptRunning) {
             console.log("Script stopped, skipping checkForAvailableDate.");
@@ -133,6 +155,11 @@
             console.log("No internet connection detected. Pausing script...");
             showToast("No internet connection. Script paused. Will resume when online...");
             setTimeout(checkForAvailableDate, 5000);
+            return;
+        }
+
+        if (checkForSessionTimeout()) {
+            isBusy = false;
             return;
         }
 
@@ -185,18 +212,10 @@
                     showToast("Slot found! Clicking to view details...");
                     dateLink.click();
                     isBusy = false;
+                    isOnSlotDetailsPage = true; // Mark that we're on the slot details page
 
-                    // Wait for the Reserve button to appear
-                    waitForElement('td.reserve.centre, span.greybutton', waitForElementTimeout)
-                        .then(() => {
-                            console.log("Reserve button container found, proceeding to click Reserve...");
-                            reserveTestSlot();
-                        })
-                        .catch((err) => {
-                            console.error("Failed to find Reserve button container:", err);
-                            showToast("Error finding Reserve button. Continuing search...");
-                            randomDelay(checkForAvailableDate);
-                        });
+                    // Immediately try to find and click the Reserve button
+                    setTimeout(reserveTestSlot, 500); // Small delay to ensure page starts loading
                     return;
                 }
             }
@@ -211,6 +230,34 @@
         if (!isScriptRunning) {
             console.log("Script stopped, skipping navigation.");
             isBusy = false;
+            return;
+        }
+
+        if (checkForSessionTimeout()) {
+            isBusy = false;
+            return;
+        }
+
+        // Check if we're on the slot details page
+        if (isOnSlotDetailsPage) {
+            console.log("On slot details page, attempting to click Reserve button again...");
+            setTimeout(reserveTestSlot, 500);
+            return;
+        }
+
+        // Check if we're on the date selection page
+        const dateCells = document.querySelectorAll('.day.none, .day.nonenonotif, .slotsavailable, td.day');
+        if (dateCells.length === 0) {
+            console.log("Not on date selection page, checking for popups or session issues...");
+            if (checkForPopup()) {
+                console.log("Popup still present, waiting...");
+                isBusy = false;
+                setTimeout(checkForAvailableDate, 3000);
+                return;
+            }
+            console.log("Possibly on a different page. Attempting to recover...");
+            showToast("Not on date selection page. Please navigate back and restart with Ctrl+Shift+R.");
+            stopScript();
             return;
         }
 
@@ -272,7 +319,8 @@
                 popupText.includes("Currently no tests are available") ||
                 popupText.includes("Too many requests") ||
                 popupText.includes("Session expired") ||
-                popupText.includes("Connection error")
+                popupText.includes("Connection error") ||
+                popupText.includes("Slot no longer available")
             ) {
                 let closeButton;
                 try {
@@ -283,6 +331,7 @@
                 if (closeButton) {
                     closeButton.click();
                     console.log("Auto-closed popup:", popupText);
+                    isOnSlotDetailsPage = false; // Reset since slot is no longer available
                     return false;
                 }
             }
@@ -298,38 +347,53 @@
     }
 
     async function reserveTestSlot() {
-        console.log("Looking for Reserve button...");
-
-        let reserveButton;
-        try {
-            // Look for the Reserve button directly
-            reserveButton = document.querySelector('span.greybutton a[href*="/reserve"]');
-            if (reserveButton) {
-                console.log("Found Reserve button inside greybutton:", reserveButton);
-            } else {
-                // Fallback to a more generic selector
-                reserveButton = document.querySelector('button[id*="reserve"], button[class*="reserve"], input[type="submit"][value*="Reserve"], a[href*="/reserve"], button');
-                if (reserveButton) {
-                    console.log("Found Reserve button with fallback selector:", reserveButton);
-                }
-            }
-
-            // Additional logging to inspect the page
-            const reserveCells = document.querySelectorAll('td.reserve.centre');
-            console.log(`Found ${reserveCells.length} elements with selector td.reserve.centre`);
-            reserveCells.forEach((cell, index) => {
-                const innerHTML = cell.innerHTML || "No inner HTML";
-                console.log(`Reserve Cell ${index + 1}: Inner HTML: ${innerHTML}`);
-            });
-        } catch (err) {
-            console.error("Error querying Reserve button:", err);
-            showToast("Error finding Reserve button. Continuing search...");
-            randomDelay(checkForAvailableDate);
+        if (!isScriptRunning) {
+            console.log("Script stopped, skipping reserveTestSlot.");
             return;
         }
 
+        console.log("Looking for Reserve button...");
+
+        let reserveButton = null;
+        let attempt = 1;
+
+        while (attempt <= retryAttempts && !reserveButton) {
+            console.log(`Attempt ${attempt} to find Reserve button...`);
+            try {
+                // Look for the Reserve button with broader selectors
+                reserveButton = document.querySelector('span[class*="button"] a[href*="/reserve"], span[class*="button"] a[href*="reserveSlot"]');
+                if (reserveButton) {
+                    console.log("Found Reserve button inside button class:", reserveButton);
+                } else {
+                    // Fallback to even broader selectors
+                    reserveButton = document.querySelector('a[href*="/reserve"], a[href*="reserveSlot"], button[id*="reserve"], button[class*="reserve"], input[type="submit"][value*="Reserve"], button');
+                    if (reserveButton) {
+                        console.log("Found Reserve button with fallback selector:", reserveButton);
+                    }
+                }
+
+                // Log all potential reserve cells for debugging
+                const reserveCells = document.querySelectorAll('td[class*="reserve"], div[class*="reserve"], span[class*="reserve"]');
+                console.log(`Found ${reserveCells.length} elements with selector td[class*="reserve"], div[class*="reserve"], span[class*="reserve"]`);
+                reserveCells.forEach((cell, index) => {
+                    const innerHTML = cell.innerHTML || "No inner HTML";
+                    console.log(`Reserve Cell ${index + 1}: Inner HTML: ${innerHTML}`);
+                });
+            } catch (err) {
+                console.error("Error querying Reserve button:", err);
+            }
+
+            if (!reserveButton && attempt < retryAttempts) {
+                console.log(`Reserve button not found, retrying in ${retryDelay}ms...`);
+                await new Promise(resolve => setTimeout(resolve, retryDelay));
+                attempt++;
+            } else {
+                break;
+            }
+        }
+
         if (reserveButton) {
-            const surroundingText = reserveButton.closest('td')?.textContent.trim() || "unknown";
+            const surroundingText = reserveButton.closest('td')?.textContent.trim() || reserveButton.closest('div')?.textContent.trim() || "unknown";
             console.log(`Found Reserve button: ${surroundingText}`);
 
             // Simulate human behavior before clicking
@@ -358,8 +422,9 @@
                     stopScript();
                 });
         } else {
-            console.log("No Reserve button found.");
-            showToast("No Reserve button found. Continuing search...");
+            console.log("No Reserve button found after retries.");
+            showToast("No Reserve button found. Returning to date selection...");
+            isOnSlotDetailsPage = false; // Reset to return to date selection
             randomDelay(checkForAvailableDate);
         }
     }
