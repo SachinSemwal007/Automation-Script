@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         DVSA NextAvailableDate (Simplified 1.0.7)
+// @name         DVSA NextAvailableDate (Simplified 1.0.9)
 // @namespace    http://tampermonkey.net/
-// @version      1.0.7
-// @description  Simplifies DVSA driving test booking by navigating through available dates (Next/Previous Available Date) every 5-10 seconds, instantly clicking the first available date found, and directly clicking the Reserve button. Includes anti-bot measures (random delays, scrolling, mouse simulation), improved Reserve button detection with broader selectors, better page context detection, session timeout handling, enhanced popup handling, detailed logging, network checks, stop with Ctrl+Shift+S, and restart with Ctrl+Shift+R.
+// @version      1.0.9
+// @description  Simplifies DVSA driving test booking by navigating through available dates (Next/Previous Available Date) every 5-10 seconds, instantly clicking the first available date found, and directly clicking the Reserve button. Includes anti-bot measures (random delays, scrolling, mouse simulation), stricter page context detection, refined Reserve button selectors with improved context checks, session timeout handling, enhanced popup handling, detailed logging, network checks, stop with Ctrl+Shift+S, and restart with Ctrl+Shift+R.
 // @include      https://driver-services.dvsa.gov.uk/*
 // @grant        none
 // ==/UserScript==
@@ -138,12 +138,27 @@
     }
 
     function isOnSlotDetailsPageCheck() {
-        // Check for elements unique to the slot details page
-        const slotDetailsIndicators = document.querySelectorAll('a[href*="reserve"], a[href*="reserveSlot"], a[id*="reserve"], a[class*="reserve"], a[class*="slot"], button[id*="reserve"], button[class*="reserve"], input[type="submit"][value*="Reserve"], button, [class*="slot-details"], [class*="test-type"], [class*="time-price"]');
+        // Check for date cells to confirm we're NOT on the date selection page
+        const dateCells = document.querySelectorAll('.day.none, .day.nonenonotif, .slotsavailable, td.day');
+        const isDateSelectionPage = dateCells.length > 0;
+
+        // Stricter check for slot details page
+        const slotDetailsIndicators = document.querySelectorAll('a[href*="reserve"], a[href*="reserveSlot"], a[id*="reserve"], a[class*="reserve"], button[id*="reserve"], button[class*="reserve"], input[type="submit"][value*="Reserve"]');
         const pageText = document.body.textContent || '';
-        const hasSlotDetailsText = pageText.includes("Test type") || pageText.includes("Time Price") || pageText.includes("Tests available") || pageText.includes("Reserve test") || pageText.includes("Return to search results");
-        console.log(`Checking if on slot details page: isOnSlotDetailsPage=${isOnSlotDetailsPage}, slotDetailsIndicators=${slotDetailsIndicators.length}, hasSlotDetailsText=${hasSlotDetailsText}`);
-        return isOnSlotDetailsPage || slotDetailsIndicators.length > 0 || hasSlotDetailsText;
+        const hasSlotDetailsText = (pageText.includes("Test type") && pageText.includes("Time Price") && pageText.includes("Tests available")) || pageText.includes("Reserve test");
+        const hasReturnToSearch = pageText.includes("Return to search results");
+        const matchingIndicators = Array.from(slotDetailsIndicators).map(el => ({
+            tag: el.tagName,
+            href: el.href || '',
+            id: el.id || '',
+            class: el.className || '',
+            text: el.textContent || el.innerText || ''
+        }));
+
+        const result = !isDateSelectionPage && (isOnSlotDetailsPage || (slotDetailsIndicators.length > 0 && hasSlotDetailsText && hasReturnToSearch));
+        console.log(`Checking if on slot details page: isOnSlotDetailsPage=${isOnSlotDetailsPage}, isDateSelectionPage=${isDateSelectionPage}, slotDetailsIndicators=${slotDetailsIndicators.length}, hasSlotDetailsText=${hasSlotDetailsText}, hasReturnToSearch=${hasReturnToSearch}, matchingIndicators=`, matchingIndicators, `Result=${result}`);
+
+        return result;
     }
 
     async function checkForAvailableDate() {
@@ -274,7 +289,7 @@
             console.log("Possibly on a different page. Attempting to recover by checking context...");
             showToast("Not on date selection page. Attempting to recover...");
             isBusy = false;
-            randomDelay(checkForAvailableDate); // Retry after a delay instead of stopping
+            randomDelay(checkForAvailableDate);
             return;
         }
 
@@ -376,17 +391,24 @@
         while (attempt <= retryAttempts && !reserveButton) {
             console.log(`Attempt ${attempt} to find Reserve button...`);
             try {
-                // Look for the Reserve button with even broader selectors
-                reserveButton = document.querySelector('a[href*="/reserve"], a[href*="reserveSlot"], a[id*="reserve"], a[class*="reserve"], a[class*="slot"], a[class*="book"], span[class*="button"] a, button[id*="reserve"], button[class*="reserve"], button[class*="slot"], button[class*="book"], input[type="submit"][value*="Reserve"], button');
+                // Primary selector for Reserve button
+                reserveButton = document.querySelector('a[href*="/reserve"], a[href*="reserveSlot"], a[id*="reserve"], a[class*="reserve"], button[id*="reserve"], button[class*="reserve"], input[type="submit"][value*="Reserve"]');
                 if (!reserveButton) {
-                    // Look for elements with specific text content
+                    // Stricter text-based search
                     const allLinksAndButtons = document.querySelectorAll('a, button, input[type="submit"]');
                     for (let element of allLinksAndButtons) {
                         const textContent = element.textContent || element.innerText || element.value || '';
-                        if (textContent.toLowerCase().includes('reserve') || textContent.toLowerCase().includes('book')) {
-                            reserveButton = element;
-                            console.log("Found Reserve button by text content:", textContent);
-                            break;
+                        if (textContent.toLowerCase() === 'reserve test' || textContent.toLowerCase() === 'book test') {
+                            // Stricter context check
+                            const parentText = element.closest('td, div')?.textContent || '';
+                            if (
+                                (parentText.includes('Test type') && parentText.includes('Time Price') && parentText.includes('Tests available')) ||
+                                (parentText.includes('Reserve test') && parentText.includes('Return to search results'))
+                            ) {
+                                reserveButton = element;
+                                console.log("Found Reserve button by text content:", textContent);
+                                break;
+                            }
                         }
                     }
                 }
@@ -394,9 +416,9 @@
                     console.log("Found Reserve button:", reserveButton);
                 }
 
-                // Log all potential reserve cells for debugging
-                const reserveCells = document.querySelectorAll('td[class*="reserve"], td[class*="slot"], td[class*="book"], div[class*="reserve"], div[class*="slot"], div[class*="book"], span[class*="reserve"], span[class*="slot"], span[class*="book"], a[class*="reserve"], a[class*="slot"], a[class*="book"]');
-                console.log(`Found ${reserveCells.length} elements with selector td[class*="reserve"], td[class*="slot"], td[class*="book"], ...`);
+                // Debugging: Log potential reserve cells
+                const reserveCells = document.querySelectorAll('td[class*="reserve"], td[class*="slot"], div[class*="reserve"], div[class*="slot"], span[class*="reserve"], span[class*="slot"], a[class*="reserve"], a[class*="slot"]');
+                console.log(`Found ${reserveCells.length} elements with selector td[class*="reserve"], td[class*="slot"], ...`);
                 reserveCells.forEach((cell, index) => {
                     const innerHTML = cell.innerHTML || "No inner HTML";
                     console.log(`Reserve Cell ${index + 1}: Inner HTML: ${innerHTML}`);
@@ -418,7 +440,6 @@
             const surroundingText = reserveButton.closest('td')?.textContent.trim() || reserveButton.closest('div')?.textContent.trim() || reserveButton.textContent.trim() || "unknown";
             console.log(`Found Reserve button with text: ${surroundingText}`);
 
-            // Check if the button is visible and clickable
             const isVisible = reserveButton.offsetParent !== null && window.getComputedStyle(reserveButton).display !== 'none' && window.getComputedStyle(reserveButton).visibility !== 'hidden';
             if (!isVisible) {
                 console.log("Reserve button is not visible, attempting to make it visible...");
@@ -439,7 +460,6 @@
 
             showToast(`Reserving slot...`);
             try {
-                // Simulate a more natural click
                 const clickEvent = new Event('click', { bubbles: true, cancelable: true });
                 reserveButton.dispatchEvent(clickEvent);
                 console.log("Reserve button clicked successfully.");
@@ -461,13 +481,16 @@
                     } else {
                         console.log("Confirmation page loaded, but success not confirmed:", confirmationText);
                         showToast("Booking may have succeeded. Please check manually.");
-                        stopScript();
+                        // Instead of stopping, return to date selection to avoid stalling
+                        isOnSlotDetailsPage = false;
+                        randomDelay(checkForAvailableDate);
                     }
                 })
                 .catch((err) => {
                     console.error("Failed to confirm reservation:", err);
-                    showToast("Unable to confirm booking. Please check manually.");
-                    stopScript();
+                    showToast("Unable to confirm booking. Returning to date selection...");
+                    isOnSlotDetailsPage = false;
+                    randomDelay(checkForAvailableDate);
                 });
         } else {
             console.log("No Reserve button found after retries.");
