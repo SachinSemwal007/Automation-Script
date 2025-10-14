@@ -11,7 +11,7 @@
     'use strict';
     console.log("Script Loaded and Running");
 
-    // New variable to track reserved seats
+    //New variable to track reserved seats
     const maxSeats = 10; // Maximum number of seats to reserve
     let reservedSeats = parseInt(localStorage.getItem('reservedSeatsCount')) || 0; // Persistent counter using localStorage
 
