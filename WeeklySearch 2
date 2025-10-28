@@ -7,7 +7,6 @@
 // @grant        none
 // ==/UserScript==
 
-
 (function () {
     'use strict';
     console.log("Script Loaded and Running");
