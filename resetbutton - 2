@@ -9,7 +9,6 @@
 
 (function () {
     'use strict';
-
     console.log("Simplified Script Loaded and Running");
 
     const minDelay = 5000; // 5 seconds
@@ -110,6 +109,7 @@
             }
         });
     }
+
 
     function checkForSessionTimeout() {
         const sessionExpiredText = document.querySelector('body')?.textContent || '';
